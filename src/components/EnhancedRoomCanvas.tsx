@@ -694,13 +694,10 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       ctx.lineWidth = room.selected ? 3 : 2;
       ctx.stroke();
       
-      // Draw room dimensions for rectangular rooms (always show on mobile)
-      if (room.points.length === 4) {
-        // Check if it's a rectangle by verifying 90-degree angles
-        const isRectangle = checkIfRectangle(room.points);
-        
-        // Show measurements more liberally on mobile devices
-        const shouldShowMeasurements = isRectangle || isMobile;
+      // Draw room measurements (always on mobile; desktop for rectangles or selected rooms)
+      {
+        const isRectangle = room.points.length === 4 && checkIfRectangle(room.points);
+        const shouldShowMeasurements = isMobile || room.selected || isRectangle;
         
         if (shouldShowMeasurements) {
           // Calculate width and height robustly from bounding box
@@ -714,10 +711,9 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
             const centerX = screenPoints.reduce((sum, p) => sum + p.x, 0) / screenPoints.length;
             const centerY = screenPoints.reduce((sum, p) => sum + p.y, 0) / screenPoints.length;
             
-            ctx.fillStyle = '#000000';
             // Ensure minimum readable font size for mobile
             const fontSize = Math.max(14, Math.min(18, zoom / 6));
-            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.font = `bold ${fontSize}px system-ui, -apple-system, Segoe UI, Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
