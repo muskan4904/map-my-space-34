@@ -400,38 +400,43 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       exportCtx.lineWidth = 2;
       exportCtx.stroke();
       
-      // Draw room dimensions if it's a rectangular room
-      if (room.points.length === 4 && checkIfRectangle(room.points)) {
-        const xs = room.points.map(p => p.x);
-        const ys = room.points.map(p => p.y);
-        const width = Math.abs(Math.max(...xs) - Math.min(...xs));
-        const height = Math.abs(Math.max(...ys) - Math.min(...ys));
+      // Draw room measurements (always on mobile; desktop for rectangles or selected rooms)
+      {
+        const isRectangle = room.points.length === 4 && checkIfRectangle(room.points);
+        const shouldShowMeasurements = isMobile || room.selected || isRectangle;
         
-        if (width > 0 && height > 0) {
-          // Calculate center for dimension text
-          const centerX = exportPoints.reduce((sum, p) => sum + p.x, 0) / exportPoints.length;
-          const centerY = exportPoints.reduce((sum, p) => sum + p.y, 0) / exportPoints.length;
+        if (shouldShowMeasurements) {
+          const xs = room.points.map(p => p.x);
+          const ys = room.points.map(p => p.y);
+          const width = Math.abs(Math.max(...xs) - Math.min(...xs));
+          const height = Math.abs(Math.max(...ys) - Math.min(...ys));
           
-          exportCtx.fillStyle = '#000000';
-          exportCtx.font = `bold ${Math.max(12, exportScale * 0.8)}px Arial`;
-          exportCtx.textAlign = 'center';
-          exportCtx.textBaseline = 'middle';
-          
-          // Add background for better readability
-          const dimensionText = `${width}×${height} ft`;
-          const textMetrics = exportCtx.measureText(dimensionText);
-          const padding = 4;
-          
-          exportCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          exportCtx.fillRect(
-            centerX - textMetrics.width / 2 - padding,
-            centerY - exportScale * 0.5,
-            textMetrics.width + padding * 2,
-            exportScale
-          );
-          
-          exportCtx.fillStyle = '#000000';
-          exportCtx.fillText(dimensionText, centerX, centerY);
+          if (width > 0 && height > 0) {
+            // Calculate center for dimension text
+            const centerX = exportPoints.reduce((sum, p) => sum + p.x, 0) / exportPoints.length;
+            const centerY = exportPoints.reduce((sum, p) => sum + p.y, 0) / exportPoints.length;
+            
+            const fontSize = Math.max(14, exportScale * 0.8);
+            exportCtx.font = `bold ${fontSize}px system-ui, -apple-system, Segoe UI, Arial`;
+            exportCtx.textAlign = 'center';
+            exportCtx.textBaseline = 'middle';
+            
+            // Add background for better readability
+            const dimensionText = `${width}×${height} ft`;
+            const textMetrics = exportCtx.measureText(dimensionText);
+            const padding = Math.max(6, fontSize * 0.3);
+            
+            exportCtx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+            exportCtx.fillRect(
+              centerX - textMetrics.width / 2 - padding,
+              centerY - fontSize / 2 - padding / 2,
+              textMetrics.width + padding * 2,
+              fontSize + padding
+            );
+            
+            exportCtx.fillStyle = '#000000';
+            exportCtx.fillText(dimensionText, centerX, centerY);
+          }
         }
       }
     });
@@ -470,7 +475,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     link.click();
     
     console.log('Map exported successfully!');
-  }, [rooms, freehandPaths, textLabels]);
+  }, [rooms, freehandPaths, textLabels, isMobile, checkIfRectangle]);
 
   // Clear canvas
   const handleClear = useCallback(() => {
