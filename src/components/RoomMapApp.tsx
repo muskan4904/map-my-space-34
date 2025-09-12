@@ -27,7 +27,13 @@ export const RoomMapApp: React.FC = () => {
 
   const handleToolChange = useCallback((tool: 'select' | 'room' | 'label' | 'erase' | 'freehand' | null) => {
     setActiveTool(tool);
-  }, []);
+    // Set appropriate default color based on tool
+    if (tool === 'freehand' && selectedColor !== '#000000') {
+      setSelectedColor('#000000'); // Black for freehand/pen tool
+    } else if (tool === 'room' && selectedColor === '#000000') {
+      setSelectedColor('#FF6B6B40'); // Default room color (not black)
+    }
+  }, [selectedColor]);
 
   const handleRoomsChange = useCallback((newRooms: Room[]) => {
     setRooms(newRooms);
@@ -83,6 +89,15 @@ export const RoomMapApp: React.FC = () => {
     setCanPanUp(canUp);
     setCanPanLeft(canLeft);
   }, []);
+
+  // Set initial color based on initial tool
+  React.useEffect(() => {
+    if (activeTool === 'freehand') {
+      setSelectedColor('#000000'); // Black for freehand/pen tool
+    } else if (activeTool === 'room') {
+      setSelectedColor('#FF6B6B40'); // Default room color (not black)
+    }
+  }, []); // Only run on mount
 
   // Calculate total area
   const totalArea = rooms.reduce((sum, room) => sum + room.area, 0);

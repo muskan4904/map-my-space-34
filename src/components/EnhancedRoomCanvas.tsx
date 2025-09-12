@@ -694,12 +694,15 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       ctx.lineWidth = room.selected ? 3 : 2;
       ctx.stroke();
       
-      // Draw room dimensions if it's a rectangular room
+      // Draw room dimensions for rectangular rooms (always show on mobile)
       if (room.points.length === 4) {
         // Check if it's a rectangle by verifying 90-degree angles
         const isRectangle = checkIfRectangle(room.points);
         
-        if (isRectangle) {
+        // Show measurements more liberally on mobile devices
+        const shouldShowMeasurements = isRectangle || isMobile;
+        
+        if (shouldShowMeasurements) {
           // Calculate width and height robustly from bounding box
           const xs = room.points.map(p => p.x);
           const ys = room.points.map(p => p.y);
@@ -712,21 +715,23 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
             const centerY = screenPoints.reduce((sum, p) => sum + p.y, 0) / screenPoints.length;
             
             ctx.fillStyle = '#000000';
-            ctx.font = `bold ${Math.max(12, Math.min(16, zoom / 8))}px Arial`;
+            // Ensure minimum readable font size for mobile
+            const fontSize = Math.max(14, Math.min(18, zoom / 6));
+            ctx.font = `bold ${fontSize}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
             // Add semi-transparent background for better readability
             const dimensionText = `${width}×${height} ft`;
             const textMetrics = ctx.measureText(dimensionText);
-            const padding = 4;
+            const padding = Math.max(6, fontSize * 0.3); // Scale padding with font size
             
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.fillRect(
               centerX - textMetrics.width / 2 - padding,
-              centerY - 8,
+              centerY - fontSize / 2 - padding / 2,
               textMetrics.width + padding * 2,
-              16
+              fontSize + padding
             );
             
             ctx.fillStyle = '#000000';
