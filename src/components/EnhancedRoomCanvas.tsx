@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { X, Check } from 'lucide-react';
 
 interface Point {
@@ -1226,27 +1227,57 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   
   return (
     <div ref={containerRef} className="w-full h-full overflow-hidden bg-white relative">
-      <canvas
-        ref={canvasRef}
-        className="cursor-crosshair w-full h-full block touch-none"
-        style={{ touchAction: 'none' }}
-        onMouseDown={handlePointerDown}
-        onMouseMove={handlePointerMove}
-        onMouseUp={handlePointerUp}
-        onTouchStart={handlePointerDown}
-        onTouchMove={handlePointerMove}
-        onTouchEnd={handlePointerUp}
-        onMouseLeave={() => {
-          setMousePos(null);
-          onCoordinateChange?.(null);
-          setIsDrawing(false);
-        }}
-        onTouchCancel={() => {
-          setMousePos(null);
-          onCoordinateChange?.(null);
-          setIsDrawing(false);
-        }}
-      />
+      {!isMobile ? (
+        <ScrollArea className="w-full h-full">
+          <div className="w-[200%] h-[200%] min-w-[2000px] min-h-[2000px]">
+            <canvas
+              ref={canvasRef}
+              className="cursor-crosshair w-full h-full block touch-none"
+              style={{ touchAction: 'none' }}
+              onMouseDown={handlePointerDown}
+              onMouseMove={handlePointerMove}
+              onMouseUp={handlePointerUp}
+              onTouchStart={handlePointerDown}
+              onTouchMove={handlePointerMove}
+              onTouchEnd={handlePointerUp}
+              onMouseLeave={() => {
+                setMousePos(null);
+                onCoordinateChange?.(null);
+                setIsDrawing(false);
+              }}
+              onTouchCancel={() => {
+                setMousePos(null);
+                onCoordinateChange?.(null);
+                setIsDrawing(false);
+              }}
+            />
+          </div>
+          <ScrollBar orientation="vertical" />
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      ) : (
+        <canvas
+          ref={canvasRef}
+          className="cursor-crosshair w-full h-full block touch-none"
+          style={{ touchAction: 'none' }}
+          onMouseDown={handlePointerDown}
+          onMouseMove={handlePointerMove}
+          onMouseUp={handlePointerUp}
+          onTouchStart={handlePointerDown}
+          onTouchMove={handlePointerMove}
+          onTouchEnd={handlePointerUp}
+          onMouseLeave={() => {
+            setMousePos(null);
+            onCoordinateChange?.(null);
+            setIsDrawing(false);
+          }}
+          onTouchCancel={() => {
+            setMousePos(null);
+            onCoordinateChange?.(null);
+            setIsDrawing(false);
+          }}
+        />
+      )}
       
       {/* Text Input */}
       {textInput && textInput.isEditing && (
