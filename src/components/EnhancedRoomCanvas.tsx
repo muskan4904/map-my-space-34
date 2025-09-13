@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+
 import { X, Check } from 'lucide-react';
 
 interface Point {
@@ -86,6 +86,8 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   const [lastPinchZoom, setLastPinchZoom] = useState(100);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileSliderValue, setMobileSliderValue] = useState(50);
+  const [desktopScrollX, setDesktopScrollX] = useState(50);
+  const [desktopScrollY, setDesktopScrollY] = useState(50);
   const [isRoomClosed, setIsRoomClosed] = useState(false);
   
   // Handle tool change and tooltip timing
@@ -159,6 +161,19 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       }));
     }
   }, [mobileSliderValue, isMobile]);
+
+  // Desktop scrollbar sliders effect - update view offset based on sliders
+  useEffect(() => {
+    if (!isMobile) {
+      const maxOffset = 1000; // Maximum offset in pixels for desktop scrollbars
+      const offsetX = (desktopScrollX - 50) * (maxOffset / 50);
+      const offsetY = (desktopScrollY - 50) * (maxOffset / 50);
+      setViewOffset({
+        x: 50 + offsetX,
+        y: 50 + offsetY,
+      });
+    }
+  }, [desktopScrollX, desktopScrollY, isMobile]);
   
   const GRID_SIZE = 20;
   
@@ -1227,55 +1242,27 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   
   return (
     <div ref={containerRef} className="w-full h-full overflow-hidden bg-white relative">
-      {!isMobile ? (
-        <ScrollArea className="w-full h-full">
-          <canvas
-            ref={canvasRef}
-            className="cursor-crosshair w-full h-full block touch-none"
-            style={{ touchAction: 'none' }}
-            onMouseDown={handlePointerDown}
-            onMouseMove={handlePointerMove}
-            onMouseUp={handlePointerUp}
-            onTouchStart={handlePointerDown}
-            onTouchMove={handlePointerMove}
-            onTouchEnd={handlePointerUp}
-            onMouseLeave={() => {
-              setMousePos(null);
-              onCoordinateChange?.(null);
-              setIsDrawing(false);
-            }}
-            onTouchCancel={() => {
-              setMousePos(null);
-              onCoordinateChange?.(null);
-              setIsDrawing(false);
-            }}
-          />
-          <ScrollBar orientation="vertical" />
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      ) : (
-        <canvas
-          ref={canvasRef}
-          className="cursor-crosshair w-full h-full block touch-none"
-          style={{ touchAction: 'none' }}
-          onMouseDown={handlePointerDown}
-          onMouseMove={handlePointerMove}
-          onMouseUp={handlePointerUp}
-          onTouchStart={handlePointerDown}
-          onTouchMove={handlePointerMove}
-          onTouchEnd={handlePointerUp}
-          onMouseLeave={() => {
-            setMousePos(null);
-            onCoordinateChange?.(null);
-            setIsDrawing(false);
-          }}
-          onTouchCancel={() => {
-            setMousePos(null);
-            onCoordinateChange?.(null);
-            setIsDrawing(false);
-          }}
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        className="cursor-crosshair w-full h-full block touch-none"
+        style={{ touchAction: 'none' }}
+        onMouseDown={handlePointerDown}
+        onMouseMove={handlePointerMove}
+        onMouseUp={handlePointerUp}
+        onTouchStart={handlePointerDown}
+        onTouchMove={handlePointerMove}
+        onTouchEnd={handlePointerUp}
+        onMouseLeave={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+        onTouchCancel={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+      />
       
       {/* Text Input */}
       {textInput && textInput.isEditing && (
@@ -1389,6 +1376,33 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
         </>
       )}
       
+      {/* Desktop Scrollbar Sliders */}
+      {!isMobile && (
+        <>
+          <div className="absolute bottom-4 left-4 right-16 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg z-10">
+            <div className="text-xs text-gray-600 mb-2 text-center">Scroll X</div>
+            <Slider
+              value={[desktopScrollX]}
+              onValueChange={(value) => setDesktopScrollX(value[0])}
+              min={0}
+              max={100}
+              step={1}
+              className="w-full"
+            />
+          </div>
+          <div className="absolute right-2 top-24 bottom-24 w-40 -rotate-90 origin-top-right bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg z-10 flex items-center">
+            <Slider
+              value={[desktopScrollY]}
+              onValueChange={(value) => setDesktopScrollY(value[0])}
+              min={0}
+              max={100}
+              step={1}
+              className="w-full"
+            />
+          </div>
+        </>
+      )}
+
       {/* Mobile Position Slider */}
       {isMobile && (
         <div className="absolute bottom-4 left-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg z-10">
