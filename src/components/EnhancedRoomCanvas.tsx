@@ -663,8 +663,11 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     for (let i = 0; i < width / majorScale + 2; i++) {
       const x = (viewOffset.x % majorScale) + i * majorScale;
       const gridX = Math.round((x - viewOffset.x) / scale);
-      if (gridX >= 0 && x > 20 && x < width - 20) {
-        ctx.fillText(`${gridX}ft`, x, 15);
+      if (gridX >= 0) {
+        // Always show 0 at origin, otherwise show labels with padding
+        if (gridX === 0 || (x > 20 && x < width - 20)) {
+          ctx.fillText(`${gridX}ft`, Math.max(20, x), 15);
+        }
       }
     }
     
@@ -674,12 +677,15 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     for (let i = 0; i < height / majorScale + 2; i++) {
       const y = (viewOffset.y % majorScale) + i * majorScale;
       const gridY = Math.round((y - viewOffset.y) / scale);
-      if (gridY >= 0 && y > 25 && y < height - 15) {
-        ctx.save();
-        ctx.translate(15, y);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText(`${gridY}ft`, 0, 0);
-        ctx.restore();
+      if (gridY >= 0) {
+        // Always show 0 at origin, otherwise show labels with padding
+        if (gridY === 0 || (y > 25 && y < height - 15)) {
+          ctx.save();
+          ctx.translate(15, Math.max(25, y));
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillText(`${gridY}ft`, 0, 0);
+          ctx.restore();
+        }
       }
     }
     ctx.restore();
