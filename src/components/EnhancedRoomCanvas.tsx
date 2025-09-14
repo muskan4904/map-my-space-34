@@ -162,6 +162,10 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   
   const GRID_SIZE = 20;
   
+  // Scrollbar bounds (allow wide panning)
+  const SCROLL_MIN = -2000;
+  const SCROLL_MAX = 2000;
+  
   // Dynamic grid configuration based on zoom level
   const getGridConfig = useCallback((zoom: number) => {
     if (zoom >= 200) {
@@ -1279,7 +1283,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
                 className="absolute w-full bg-gray-400 rounded-full" 
                 style={{ 
                   height: '10%',
-                  top: `${((viewOffset.y + 200) / 600) * 100}%`
+                  top: `${((viewOffset.y - SCROLL_MIN) / (SCROLL_MAX - SCROLL_MIN)) * 100}%`
                 }}
               />
             </div>
@@ -1287,7 +1291,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
               className="block h-4 w-4 rounded-full border-2 border-gray-400 bg-white shadow-sm cursor-pointer hover:border-gray-500 transition-colors"
               style={{
                 position: 'absolute',
-                top: `${((viewOffset.y + 200) / 600) * 100}%`,
+                top: `${((viewOffset.y - SCROLL_MIN) / (SCROLL_MAX - SCROLL_MIN)) * 100}%`,
                 transform: 'translateY(-50%)'
               }}
               onMouseDown={(e) => {
@@ -1296,8 +1300,8 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
                 if (!rect) return;
                 
                 const handleMouseMove = (event: MouseEvent) => {
-                  const newY = ((event.clientY - rect.top) / rect.height) * 600 - 200;
-                  setViewOffset(prev => ({ ...prev, y: Math.max(-200, Math.min(400, newY)) }));
+                  const newY = SCROLL_MIN + ((event.clientY - rect.top) / rect.height) * (SCROLL_MAX - SCROLL_MIN);
+                  setViewOffset(prev => ({ ...prev, y: Math.max(SCROLL_MIN, Math.min(SCROLL_MAX, newY)) }));
                 };
                 
                 const handleMouseUp = () => {
