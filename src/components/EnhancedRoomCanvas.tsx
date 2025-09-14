@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { HorizontalScrollbar, VerticalScrollbar } from '@/components/Scrollbars';
 import { X, Check } from 'lucide-react';
 
 interface Point {
@@ -1234,86 +1234,23 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       {/* Desktop X-axis scrollbar */}
       {!isMobile && (
         <div className="absolute bottom-0 left-0 right-4 h-4 z-20">
-          <div className="relative flex w-full touch-none select-none items-center h-full">
-            <div className="relative h-2 w-full grow overflow-hidden rounded-full bg-gray-200">
-              <div 
-                className="absolute h-full bg-gray-400 rounded-full" 
-                style={{ 
-                  width: '10%',
-                  left: `${((viewOffset.x + 200) / 600) * 100}%`
-                }}
-              />
-            </div>
-            <div 
-              className="block h-4 w-4 rounded-full border-2 border-gray-400 bg-white shadow-sm cursor-pointer hover:border-gray-500 transition-colors"
-              style={{
-                position: 'absolute',
-                left: `${((viewOffset.x + 200) / 600) * 100}%`,
-                transform: 'translateX(-50%)'
-              }}
-              onMouseDown={(e) => {
-                const slider = e.currentTarget.parentElement;
-                const rect = slider?.getBoundingClientRect();
-                if (!rect) return;
-                
-                const handleMouseMove = (event: MouseEvent) => {
-                  const newX = ((event.clientX - rect.left) / rect.width) * 600 - 200;
-                  setViewOffset(prev => ({ ...prev, x: Math.max(-200, Math.min(400, newX)) }));
-                };
-                
-                const handleMouseUp = () => {
-                  document.removeEventListener('mousemove', handleMouseMove);
-                  document.removeEventListener('mouseup', handleMouseUp);
-                };
-                
-                document.addEventListener('mousemove', handleMouseMove);
-                document.addEventListener('mouseup', handleMouseUp);
-              }}
-            />
-          </div>
+          <HorizontalScrollbar
+            value={viewOffset.x}
+            min={SCROLL_MIN}
+            max={SCROLL_MAX}
+            onChange={(x) => setViewOffset((prev) => ({ ...prev, x }))}
+          />
         </div>
       )}
       
-      {/* Desktop Y-axis scrollbar */}
       {!isMobile && (
         <div className="absolute top-0 bottom-4 right-0 w-4 z-20">
-          <div className="relative flex h-full touch-none select-none items-center flex-col w-full">
-            <div className="relative w-2 h-full grow overflow-hidden rounded-full bg-gray-200">
-              <div 
-                className="absolute w-full bg-gray-400 rounded-full" 
-                style={{ 
-                  height: '10%',
-                  top: `${((viewOffset.y - SCROLL_MIN) / (SCROLL_MAX - SCROLL_MIN)) * 100}%`
-                }}
-              />
-            </div>
-            <div 
-              className="block h-4 w-4 rounded-full border-2 border-gray-400 bg-white shadow-sm cursor-pointer hover:border-gray-500 transition-colors"
-              style={{
-                position: 'absolute',
-                top: `${((viewOffset.y - SCROLL_MIN) / (SCROLL_MAX - SCROLL_MIN)) * 100}%`,
-                transform: 'translateY(-50%)'
-              }}
-              onMouseDown={(e) => {
-                const slider = e.currentTarget.parentElement;
-                const rect = slider?.getBoundingClientRect();
-                if (!rect) return;
-                
-                const handleMouseMove = (event: MouseEvent) => {
-                  const newY = SCROLL_MIN + ((event.clientY - rect.top) / rect.height) * (SCROLL_MAX - SCROLL_MIN);
-                  setViewOffset(prev => ({ ...prev, y: Math.max(SCROLL_MIN, Math.min(SCROLL_MAX, newY)) }));
-                };
-                
-                const handleMouseUp = () => {
-                  document.removeEventListener('mousemove', handleMouseMove);
-                  document.removeEventListener('mouseup', handleMouseUp);
-                };
-                
-                document.addEventListener('mousemove', handleMouseMove);
-                document.addEventListener('mouseup', handleMouseUp);
-              }}
-            />
-          </div>
+          <VerticalScrollbar
+            value={viewOffset.y}
+            min={SCROLL_MIN}
+            max={SCROLL_MAX}
+            onChange={(y) => setViewOffset((prev) => ({ ...prev, y }))}
+          />
         </div>
       )}
       
