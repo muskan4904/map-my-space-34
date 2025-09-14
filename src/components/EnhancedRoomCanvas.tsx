@@ -161,6 +161,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   }, [mobileSliderValue, isMobile]);
   
   const GRID_SIZE = 20;
+  const GRID_OFFSET = 50; // Offset grid from canvas edges
   
   // Scrollbar bounds (allow wide panning)
   const SCROLL_MIN = -4000;
@@ -185,8 +186,8 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   const screenToGrid = useCallback((point: Point): Point => {
     const scale = GRID_SIZE * (zoom / 100);
     return {
-      x: Math.round((point.x - viewOffset.x) / scale),
-      y: Math.round((point.y - viewOffset.y) / scale)
+      x: Math.round((point.x - viewOffset.x - GRID_OFFSET) / scale),
+      y: Math.round((point.y - viewOffset.y - GRID_OFFSET) / scale)
     };
   }, [zoom, viewOffset]);
   
@@ -194,8 +195,8 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   const gridToScreen = useCallback((point: Point): Point => {
     const scale = GRID_SIZE * (zoom / 100);
     return {
-      x: point.x * scale + viewOffset.x,
-      y: point.y * scale + viewOffset.y
+      x: point.x * scale + viewOffset.x + GRID_OFFSET,
+      y: point.y * scale + viewOffset.y + GRID_OFFSET
     };
   }, [zoom, viewOffset]);
   
@@ -610,24 +611,24 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       ctx.lineWidth = 0.5;
       
       // Vertical minor lines
-      for (let x = viewOffset.x % minorScale; x < width; x += minorScale) {
+      for (let x = (viewOffset.x % minorScale) + GRID_OFFSET; x < width; x += minorScale) {
         // Skip if this is a major line
-        const gridX = Math.round((x - viewOffset.x) / scale);
+        const gridX = Math.round((x - viewOffset.x - GRID_OFFSET) / scale);
         if (gridX % gridConfig.majorInterval !== 0) {
           ctx.beginPath();
-          ctx.moveTo(x, 0);
+          ctx.moveTo(x, GRID_OFFSET);
           ctx.lineTo(x, height);
           ctx.stroke();
         }
       }
       
       // Horizontal minor lines
-      for (let y = viewOffset.y % minorScale; y < height; y += minorScale) {
+      for (let y = (viewOffset.y % minorScale) + GRID_OFFSET; y < height; y += minorScale) {
         // Skip if this is a major line
-        const gridY = Math.round((y - viewOffset.y) / scale);
+        const gridY = Math.round((y - viewOffset.y - GRID_OFFSET) / scale);
         if (gridY % gridConfig.majorInterval !== 0) {
           ctx.beginPath();
-          ctx.moveTo(0, y);
+          ctx.moveTo(GRID_OFFSET, y);
           ctx.lineTo(width, y);
           ctx.stroke();
         }
@@ -639,17 +640,17 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     ctx.lineWidth = 1;
     
     // Vertical major lines
-    for (let x = viewOffset.x % majorScale; x < width; x += majorScale) {
+    for (let x = (viewOffset.x % majorScale) + GRID_OFFSET; x < width; x += majorScale) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, GRID_OFFSET);
       ctx.lineTo(x, height);
       ctx.stroke();
     }
     
     // Horizontal major lines
-    for (let y = viewOffset.y % majorScale; y < height; y += majorScale) {
+    for (let y = (viewOffset.y % majorScale) + GRID_OFFSET; y < height; y += majorScale) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
+      ctx.moveTo(GRID_OFFSET, y);
       ctx.lineTo(width, y);
       ctx.stroke();
     }
@@ -661,12 +662,12 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     
     // X-axis labels (major intervals only)
     for (let i = 0; i < width / majorScale + 2; i++) {
-      const x = (viewOffset.x % majorScale) + i * majorScale;
-      const gridX = Math.round((x - viewOffset.x) / scale);
+      const x = (viewOffset.x % majorScale) + i * majorScale + GRID_OFFSET;
+      const gridX = Math.round((x - viewOffset.x - GRID_OFFSET) / scale);
       if (gridX >= 0) {
         // Always show 0 at origin with more spacing, otherwise show labels with padding
-        if (gridX === 0 || (x > 40 && x < width - 40)) {
-          ctx.fillText(`${gridX}ft`, Math.max(50, x), 15);
+        if (gridX === 0 || (x > GRID_OFFSET + 20 && x < width - 20)) {
+          ctx.fillText(`${gridX}ft`, x, GRID_OFFSET - 5);
         }
       }
     }
@@ -675,13 +676,13 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     ctx.save();
     ctx.textAlign = 'center';
     for (let i = 0; i < height / majorScale + 2; i++) {
-      const y = (viewOffset.y % majorScale) + i * majorScale;
-      const gridY = Math.round((y - viewOffset.y) / scale);
+      const y = (viewOffset.y % majorScale) + i * majorScale + GRID_OFFSET;
+      const gridY = Math.round((y - viewOffset.y - GRID_OFFSET) / scale);
       if (gridY >= 0) {
         // Always show 0 at origin with more spacing, otherwise show labels with padding
-        if (gridY === 0 || (y > 40 && y < height - 30)) {
+        if (gridY === 0 || (y > GRID_OFFSET + 20 && y < height - 20)) {
           ctx.save();
-          ctx.translate(30, Math.max(50, y));
+          ctx.translate(GRID_OFFSET - 10, y);
           ctx.rotate(-Math.PI / 2);
           ctx.fillText(`${gridY}ft`, 0, 0);
           ctx.restore();
