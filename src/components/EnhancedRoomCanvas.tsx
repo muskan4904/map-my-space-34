@@ -664,9 +664,9 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       const x = (viewOffset.x % majorScale) + i * majorScale;
       const gridX = Math.round((x - viewOffset.x) / scale);
       if (gridX >= 0) {
-        // Always show 0 at origin, otherwise show labels with padding
-        if (gridX === 0 || (x > 20 && x < width - 20)) {
-          ctx.fillText(`${gridX}ft`, Math.max(20, x), 15);
+        // Always show 0 at origin with more spacing, otherwise show labels with padding
+        if (gridX === 0 || (x > 40 && x < width - 40)) {
+          ctx.fillText(`${gridX}ft`, Math.max(50, x), 15);
         }
       }
     }
@@ -678,10 +678,10 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       const y = (viewOffset.y % majorScale) + i * majorScale;
       const gridY = Math.round((y - viewOffset.y) / scale);
       if (gridY >= 0) {
-        // Always show 0 at origin, otherwise show labels with padding
-        if (gridY === 0 || (y > 25 && y < height - 15)) {
+        // Always show 0 at origin with more spacing, otherwise show labels with padding
+        if (gridY === 0 || (y > 40 && y < height - 30)) {
           ctx.save();
-          ctx.translate(15, Math.max(25, y));
+          ctx.translate(30, Math.max(50, y));
           ctx.rotate(-Math.PI / 2);
           ctx.fillText(`${gridY}ft`, 0, 0);
           ctx.restore();
