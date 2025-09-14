@@ -1227,55 +1227,57 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   
   return (
     <div ref={containerRef} className="w-full h-full overflow-hidden bg-white relative">
-      {!isMobile ? (
-        <ScrollArea className="w-full h-full">
-          <canvas
-            ref={canvasRef}
-            className="cursor-crosshair w-full h-full block touch-none"
-            style={{ touchAction: 'none' }}
-            onMouseDown={handlePointerDown}
-            onMouseMove={handlePointerMove}
-            onMouseUp={handlePointerUp}
-            onTouchStart={handlePointerDown}
-            onTouchMove={handlePointerMove}
-            onTouchEnd={handlePointerUp}
-            onMouseLeave={() => {
-              setMousePos(null);
-              onCoordinateChange?.(null);
-              setIsDrawing(false);
-            }}
-            onTouchCancel={() => {
-              setMousePos(null);
-              onCoordinateChange?.(null);
-              setIsDrawing(false);
-            }}
+      {/* Desktop X-axis scrollbar */}
+      {!isMobile && (
+        <div className="absolute bottom-0 left-0 right-4 h-4 z-20">
+          <Slider
+            value={[viewOffset.x]}
+            onValueChange={(value) => setViewOffset(prev => ({ ...prev, x: value[0] }))}
+            min={-200}
+            max={400}
+            step={1}
+            className="w-full h-full"
+            orientation="horizontal"
           />
-          <ScrollBar orientation="vertical" />
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      ) : (
-        <canvas
-          ref={canvasRef}
-          className="cursor-crosshair w-full h-full block touch-none"
-          style={{ touchAction: 'none' }}
-          onMouseDown={handlePointerDown}
-          onMouseMove={handlePointerMove}
-          onMouseUp={handlePointerUp}
-          onTouchStart={handlePointerDown}
-          onTouchMove={handlePointerMove}
-          onTouchEnd={handlePointerUp}
-          onMouseLeave={() => {
-            setMousePos(null);
-            onCoordinateChange?.(null);
-            setIsDrawing(false);
-          }}
-          onTouchCancel={() => {
-            setMousePos(null);
-            onCoordinateChange?.(null);
-            setIsDrawing(false);
-          }}
-        />
+        </div>
       )}
+      
+      {/* Desktop Y-axis scrollbar */}
+      {!isMobile && (
+        <div className="absolute top-0 bottom-4 right-0 w-4 z-20">
+          <Slider
+            value={[viewOffset.y]}
+            onValueChange={(value) => setViewOffset(prev => ({ ...prev, y: value[0] }))}
+            min={-200}
+            max={400}
+            step={1}
+            className="h-full w-full"
+            orientation="vertical"
+          />
+        </div>
+      )}
+      
+      <canvas
+        ref={canvasRef}
+        className="cursor-crosshair w-full h-full block touch-none"
+        style={{ touchAction: 'none' }}
+        onMouseDown={handlePointerDown}
+        onMouseMove={handlePointerMove}
+        onMouseUp={handlePointerUp}
+        onTouchStart={handlePointerDown}
+        onTouchMove={handlePointerMove}
+        onTouchEnd={handlePointerUp}
+        onMouseLeave={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+        onTouchCancel={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+      />
       
       {/* Text Input */}
       {textInput && textInput.isEditing && (
