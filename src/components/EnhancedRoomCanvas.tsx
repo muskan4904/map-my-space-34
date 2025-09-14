@@ -69,7 +69,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   const [currentRoom, setCurrentRoom] = useState<Point[]>([]);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
   const [mousePos, setMousePos] = useState<Point | null>(null);
-  const [viewOffset, setViewOffset] = useState({ x: 50, y: 50 });
+  const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [canPanUp, setCanPanUp] = useState(false);
   const [canPanLeft, setCanPanLeft] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -163,8 +163,8 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   const GRID_SIZE = 20;
   
   // Scrollbar bounds (allow wide panning)
-  const SCROLL_MIN = -2000;
-  const SCROLL_MAX = 2000;
+  const SCROLL_MIN = -4000;
+  const SCROLL_MAX = 0;
   
   // Dynamic grid configuration based on zoom level
   const getGridConfig = useCallback((zoom: number) => {
@@ -500,7 +500,6 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     const panAmount = 50; // pixels to pan
     setViewOffset(prev => {
       let newOffset = { ...prev };
-      
       switch (direction) {
         case 'up':
           newOffset.y = prev.y + panAmount;
@@ -517,7 +516,9 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
         default:
           return prev;
       }
-      
+      // Clamp so we never go past grid origin (0,0) on top/left
+      newOffset.x = Math.min(0, Math.max(SCROLL_MIN, newOffset.x));
+      newOffset.y = Math.min(0, Math.max(SCROLL_MIN, newOffset.y));
       return newOffset;
     });
   }, []);
