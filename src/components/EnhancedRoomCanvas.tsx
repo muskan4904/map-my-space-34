@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
@@ -48,9 +48,14 @@ interface EnhancedRoomCanvasProps {
   selectedColor: string;
   onPanCanvas?: (direction: 'up' | 'down' | 'left' | 'right') => void;
   onPanCapabilitiesChange?: (canUp: boolean, canLeft: boolean) => void;
+  onUndo?: () => void;
 }
 
-export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
+export interface EnhancedRoomCanvasRef {
+  undo: () => void;
+}
+
+export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, EnhancedRoomCanvasProps>(({
   tool,
   onRoomsChange,
   onCoordinateChange,
@@ -58,8 +63,9 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
   onZoomChange,
   selectedColor,
   onPanCanvas,
-  onPanCapabilitiesChange
-}) => {
+  onPanCapabilitiesChange,
+  onUndo
+}, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -1249,15 +1255,24 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     draw();
   }, [draw]);
 
-  // Expose functions to parent
+  // Expose undo function through ref
+  useImperativeHandle(ref, () => ({
+    undo: handleUndo
+  }), [handleUndo]);
+
+  // Call parent undo when internal undo is triggered
+  useEffect(() => {
+    // This effect doesn't need to do anything - we'll call onUndo directly from handleUndo
+  }, []);
+
+  // Expose functions to parent (keeping for export, clear, and pan)
   useEffect(() => {
     if (window) {
-      (window as any).roomCanvasUndo = handleUndo;
       (window as any).roomCanvasExport = handleExport;
       (window as any).roomCanvasClear = handleClear;
       (window as any).roomCanvasPan = handlePanCanvas;
     }
-  }, [handleUndo, handleExport, handleClear, handlePanCanvas]);
+  }, [handleExport, handleClear, handlePanCanvas]);
 
   
   return (
@@ -1435,4 +1450,4 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
       )}
     </div>
   );
-};
+});

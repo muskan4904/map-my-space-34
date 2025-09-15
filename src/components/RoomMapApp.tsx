@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { EnhancedRoomCanvas } from './EnhancedRoomCanvas';
+import React, { useState, useCallback, useRef } from 'react';
+import { EnhancedRoomCanvas, EnhancedRoomCanvasRef } from './EnhancedRoomCanvas';
 import { RoomToolbar } from './RoomToolbar';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
@@ -17,6 +17,7 @@ const MIN_ZOOM = 50;
 const MAX_ZOOM = 200;
 
 export const RoomMapApp: React.FC = () => {
+  const canvasRef = useRef<EnhancedRoomCanvasRef>(null);
   const [activeTool, setActiveTool] = useState<'select' | 'room' | 'label' | 'erase' | 'freehand' | null>('freehand');
   const [rooms, setRooms] = useState<Room[]>([]);
   const [coordinates, setCoordinates] = useState<{ x: number; y: number } | null>(null);
@@ -64,9 +65,7 @@ export const RoomMapApp: React.FC = () => {
   }, []);
 
   const handleUndo = useCallback(() => {
-    if ((window as any).roomCanvasUndo) {
-      (window as any).roomCanvasUndo();
-    }
+    canvasRef.current?.undo();
   }, []);
 
   const handleColorChange = useCallback((color: string) => {
@@ -155,6 +154,7 @@ export const RoomMapApp: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-0">        
         <div className="flex-1 min-h-0">
           <EnhancedRoomCanvas
+            ref={canvasRef}
             tool={activeTool}
             onRoomsChange={handleRoomsChange}
             onCoordinateChange={handleCoordinateChange}
@@ -162,6 +162,7 @@ export const RoomMapApp: React.FC = () => {
             onZoomChange={handleZoomChange}
             selectedColor={selectedColor}
             onPanCapabilitiesChange={handlePanCapabilitiesChange}
+            onUndo={handleUndo}
           />
         </div>
 
