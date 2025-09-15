@@ -13,7 +13,7 @@ interface Room {
   selected?: boolean;
 }
 
-const MIN_ZOOM = 50;
+const MIN_ZOOM = 10;
 const MAX_ZOOM = 200;
 
 export const RoomMapApp: React.FC = () => {
@@ -53,7 +53,7 @@ export const RoomMapApp: React.FC = () => {
   }, []);
 
   const handleZoomChange = useCallback((newZoom: number) => {
-    setZoom(Math.max(MIN_ZOOM, Math.min(newZoom, MAX_ZOOM * 2.5))); // Allow higher zoom for pinch
+    setZoom(Math.max(MIN_ZOOM, Math.min(newZoom, MAX_ZOOM))); // Strict 10% to 200% range
   }, []);
 
   const handleClear = useCallback(() => {
