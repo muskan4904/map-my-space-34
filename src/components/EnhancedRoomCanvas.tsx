@@ -253,8 +253,30 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     return parallel13 && parallel24 && equalLength13 && equalLength24 && perpendicular12;
   }, []);
 
-  // Undo last action
+  // Undo last action or point
   const handleUndo = useCallback(() => {
+    // First priority: If room tool is active and has points, remove last point
+    if (tool === 'room' && currentRoom.length > 0) {
+      console.log('Undoing last point from currentRoom, was:', currentRoom.length);
+      setCurrentRoom(prev => {
+        const newRoom = prev.slice(0, -1);
+        console.log('After undo, currentRoom length:', newRoom.length);
+        // Reset room closed state if we have fewer than 3 points
+        if (newRoom.length < 3) {
+          setIsRoomClosed(false);
+        }
+        return newRoom;
+      });
+      return;
+    }
+    
+    // Second priority: If freehand tool is active and has points, remove last point
+    if (tool === 'freehand' && currentPath.length > 0) {
+      setCurrentPath(prev => prev.slice(0, -1));
+      return;
+    }
+    
+    // Third priority: Undo completed actions
     if (actionHistory.length === 0) return;
     
     const lastAction = actionHistory[actionHistory.length - 1];
@@ -276,7 +298,7 @@ export const EnhancedRoomCanvas: React.FC<EnhancedRoomCanvasProps> = ({
     }
     
     setActionHistory(prev => prev.slice(0, -1));
-  }, [actionHistory]);
+  }, [actionHistory, tool, currentRoom, currentPath]);
 
   // Export canvas without grid
   const handleExport = useCallback(() => {
