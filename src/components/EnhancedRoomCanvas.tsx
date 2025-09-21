@@ -91,7 +91,6 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const [lastPinchDistance, setLastPinchDistance] = useState(0);
   const [lastPinchZoom, setLastPinchZoom] = useState(100);
   const [isMobile, setIsMobile] = useState(false);
-  const [mobileSliderValue, setMobileSliderValue] = useState(50);
   const [isRoomClosed, setIsRoomClosed] = useState(false);
   
   // Handle tool change and tooltip timing
@@ -145,26 +144,6 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Mobile slider effect - update view offset based on slider
-  useEffect(() => {
-    if (isMobile) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-      const maxOffset = 200; // Maximum offset in pixels
-      
-      // Convert slider value (0-100) to offset
-      const offsetX = (mobileSliderValue - 50) * (maxOffset / 50);
-      const offsetY = (mobileSliderValue - 50) * (maxOffset / 50);
-      
-      setViewOffset(prev => ({
-        x: 50 + offsetX,
-        y: 50 + offsetY
-      }));
-    }
-  }, [mobileSliderValue, isMobile]);
   
   const GRID_SIZE = 20;
   const GRID_OFFSET_X = 25; // Left spacing from edge
@@ -1434,20 +1413,6 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         </>
       )}
       
-      {/* Mobile Position Slider */}
-      {isMobile && (
-        <div className="absolute bottom-4 left-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg z-10">
-          <div className="text-xs text-gray-600 mb-2 text-center">Adjust Drawing Position</div>
-          <Slider
-            value={[mobileSliderValue]}
-            onValueChange={(value) => setMobileSliderValue(value[0])}
-            min={0}
-            max={100}
-            step={1}
-            className="w-full"
-          />
-        </div>
-      )}
     </div>
   );
 });
