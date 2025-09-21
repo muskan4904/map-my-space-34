@@ -73,7 +73,7 @@ export const RoomToolbar: React.FC<RoomToolbarProps> = ({
   return (
     <>
       {/* Mobile Toolbar - Compact */}
-      <Card className="md:hidden fixed bottom-20 left-2 right-2 z-50 bg-toolbar border-toolbar-border shadow-xl">
+      <Card className="md:hidden fixed bottom-2 left-2 right-2 z-50 bg-toolbar border-toolbar-border shadow-xl">
         <div className="p-2 space-y-2">
           {/* Primary Tools Row */}
           <div className="flex items-center justify-between gap-1">
