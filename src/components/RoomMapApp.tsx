@@ -102,7 +102,7 @@ export const RoomMapApp: React.FC = () => {
   const totalArea = rooms.reduce((sum, room) => sum + room.area, 0);
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden pb-[15px]">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Mobile Header - Compact */}
       <header className="md:hidden border-b border-border bg-card px-3 py-2">
         <div className="flex items-center justify-between">
