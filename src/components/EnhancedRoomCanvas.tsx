@@ -576,19 +576,60 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       }
     }
     
-    // Check freehand paths
-    for (const path of freehandPaths) {
-      for (const pathPoint of path.points) {
-        const screenPoint = gridToScreen(pathPoint);
-        const distance = Math.sqrt(
-          Math.pow(point.x - screenPoint.x, 2) + 
-          Math.pow(point.y - screenPoint.y, 2)
-        );
-        if (distance < 10) {
-          return { type: 'freehand', id: path.id, element: path };
-        }
+  // Check freehand paths - check both points and line segments
+  for (const path of freehandPaths) {
+    // Check points
+    for (const pathPoint of path.points) {
+      const screenPoint = gridToScreen(pathPoint);
+      const distance = Math.sqrt(
+        Math.pow(point.x - screenPoint.x, 2) + 
+        Math.pow(point.y - screenPoint.y, 2)
+      );
+      if (distance < 10) {
+        return { type: 'freehand', id: path.id, element: path };
       }
     }
+    
+    // Check line segments between points
+    for (let i = 0; i < path.points.length - 1; i++) {
+      const start = gridToScreen(path.points[i]);
+      const end = gridToScreen(path.points[i + 1]);
+      
+      // Calculate distance from point to line segment
+      const A = point.x - start.x;
+      const B = point.y - start.y;
+      const C = end.x - start.x;
+      const D = end.y - start.y;
+      
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      
+      if (lenSq === 0) continue; // Zero length segment
+      
+      const param = dot / lenSq;
+      
+      let xx, yy;
+      
+      if (param < 0) {
+        xx = start.x;
+        yy = start.y;
+      } else if (param > 1) {
+        xx = end.x;
+        yy = end.y;
+      } else {
+        xx = start.x + param * C;
+        yy = start.y + param * D;
+      }
+      
+      const dx = point.x - xx;
+      const dy = point.y - yy;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < 10) {
+        return { type: 'freehand', id: path.id, element: path };
+      }
+    }
+  }
     
     return null;
   }, [rooms, freehandPaths, textLabels, isPointInRoom, gridToScreen]);
@@ -998,8 +1039,29 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         return newRoom;
       });
     } else if (tool === 'freehand' && !isPinching) {
-      setIsDrawing(true);
-      setCurrentPath([gridPos]);
+      // Click-to-click pen tool - add point and create line segments
+      setCurrentPath(prev => {
+        const newPath = [...prev, gridPos];
+        
+        // If we have 2 or more points, create a line segment
+        if (newPath.length >= 2) {
+          const newFreehandPath: FreehandPath = {
+            id: Date.now().toString(),
+            points: newPath,
+            color: selectedColor,
+            width: 3
+          };
+          
+          // Add the new path to freehand paths
+          setFreehandPaths(prevPaths => [...prevPaths, newFreehandPath]);
+          setActionHistory(prevHistory => [...prevHistory, { type: 'freehand', data: newFreehandPath }]);
+          
+          // Return just the current point to start next segment
+          return [gridPos];
+        }
+        
+        return newPath;
+      });
     } else if (tool === 'label') {
       setTextInput({ position: gridPos, value: '', isEditing: true });
     } else if (tool === 'erase') {
@@ -1098,22 +1160,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     const gridPos = screenToGrid(point);
     onCoordinateChange?.(gridPos);
     
-    if (tool === 'freehand' && isDrawing && !isPinching) {
-      setCurrentPath(prev => {
-        // Throttle points for better performance on mobile
-        if (prev.length > 0) {
-          const lastPoint = prev[prev.length - 1];
-          const lastScreenPoint = gridToScreen(lastPoint);
-          const distance = Math.sqrt(
-            Math.pow(point.x - lastScreenPoint.x, 2) + 
-            Math.pow(point.y - lastScreenPoint.y, 2)
-          );
-          // Only add point if moved enough distance (smoother lines on mobile)
-          if (distance < 5) return prev;
-        }
-        return [...prev, gridPos];
-      });
-    }
+    // Freehand tool is now click-based, no need for move handling
   }, [isDraggingText, getEventPoint, screenToGrid, onCoordinateChange, tool, isDrawing, gridToScreen, isPinching, getTouchDistance, lastPinchDistance, lastPinchZoom, zoom, onZoomChange]);
   
   // Handle mouse/touch end
@@ -1130,20 +1177,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       return;
     }
     
-    if (tool === 'freehand' && isDrawing && currentPath.length > 1) {
-      // Apply line straightening
-      const straightenedPath = straightenLine(currentPath);
-      
-      const newPath: FreehandPath = {
-        id: Date.now().toString(),
-        points: straightenedPath,
-        color: selectedColor,
-        width: 3
-      };
-      setFreehandPaths(prev => [...prev, newPath]);
-      setCurrentPath([]);
-      setActionHistory(prev => [...prev, { type: 'freehand', data: newPath }]);
-    }
+    // Freehand tool is now click-based, no need for mouse up handling
     setIsDrawing(false);
   }, [isDraggingText, tool, isDrawing, currentPath, selectedColor, straightenLine, isPinching]);
 
@@ -1374,7 +1408,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
           {tool === 'freehand' && (
             <div className="absolute top-4 right-4 bg-green-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
               <p className="text-sm font-medium">
-                Click and drag to draw freehand lines
+                Click points to draw straight lines
               </p>
             </div>
           )}
