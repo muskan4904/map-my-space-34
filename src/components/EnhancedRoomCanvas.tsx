@@ -684,8 +684,8 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       }
     }
     
-    // Draw major grid lines (dark)
-    ctx.strokeStyle = '#d1d5db';
+    // Draw major grid lines (darker for better visibility)
+    ctx.strokeStyle = '#9ca3af';
     ctx.lineWidth = 1;
     
     // Vertical major lines
@@ -704,8 +704,8 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       ctx.stroke();
     }
     
-    // Draw grid labels (only for major lines)
-    ctx.fillStyle = '#666666';
+    // Draw grid labels (only for major lines) - darker for better visibility
+    ctx.fillStyle = '#374151';
     ctx.font = `${Math.max(8, Math.min(12, zoom / 10))}px Arial`;
     ctx.textAlign = 'center';
     
