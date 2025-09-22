@@ -894,30 +894,37 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       }
     }
     
-    // Draw current freehand path with preview straightening
-    if (tool === 'freehand' && currentPath.length > 1) {
-      // Show preview of straightened line
-      const previewPath = mousePos ? straightenLine([...currentPath, screenToGrid(mousePos)]) : currentPath;
-      const screenPoints = previewPath.map(gridToScreen);
-      
-      ctx.strokeStyle = selectedColor.replace('40', '');
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      
-      if (screenPoints.length === 2 && previewPath.length === 2) {
-        // Show straight line preview with dashed line
-        ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = selectedColor.replace('40', '80'); // More opaque for preview
-      }
-      
-      ctx.beginPath();
-      ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-      screenPoints.slice(1).forEach(point => {
-        ctx.lineTo(point.x, point.y);
+    // Draw current freehand path with preview straightening and click points
+    if (tool === 'freehand' && currentPath.length > 0) {
+      // Draw the current path points as highlighted dots
+      currentPath.forEach((point, index) => {
+        const screenPoint = gridToScreen(point);
+        ctx.fillStyle = selectedColor.replace('40', '');
+        ctx.beginPath();
+        ctx.arc(screenPoint.x, screenPoint.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Add a white border for better visibility
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       });
-      ctx.stroke();
-      ctx.setLineDash([]); // Reset dash
+      
+      // If we have a point and mouse position, show preview line
+      if (currentPath.length >= 1 && mousePos) {
+        const lastPoint = gridToScreen(currentPath[currentPath.length - 1]);
+        
+        // Draw preview line to mouse position
+        ctx.strokeStyle = selectedColor.replace('40', '80'); // Semi-transparent
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        
+        ctx.beginPath();
+        ctx.moveTo(lastPoint.x, lastPoint.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset dash
+      }
     }
   }, [rooms, freehandPaths, textLabels, currentRoom, currentPath, mousePos, tool, selectedColor, zoom, viewOffset, gridToScreen, screenToGrid]);
   
