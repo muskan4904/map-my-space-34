@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { EnhancedRoomCanvas, EnhancedRoomCanvasRef } from './EnhancedRoomCanvas';
 import { RoomToolbar } from './RoomToolbar';
+import { FurniturePalette, FurnitureItem } from './FurniturePalette';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 
@@ -25,6 +26,9 @@ export const RoomMapApp: React.FC = () => {
   const [selectedColor, setSelectedColor] = useState('#000000'); // Default black color for freehand
   const [canPanUp, setCanPanUp] = useState(false);
   const [canPanLeft, setCanPanLeft] = useState(false);
+  const [showFurniturePalette, setShowFurniturePalette] = useState(false);
+  const [selectedFurniture, setSelectedFurniture] = useState<FurnitureItem | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   const handleToolChange = useCallback((tool: 'select' | 'room' | 'label' | 'erase' | 'freehand' | null) => {
     setActiveTool(tool);
@@ -87,6 +91,19 @@ export const RoomMapApp: React.FC = () => {
   const handlePanCapabilitiesChange = useCallback((canUp: boolean, canLeft: boolean) => {
     setCanPanUp(canUp);
     setCanPanLeft(canLeft);
+  }, []);
+
+  React.useEffect(() => {
+    setIsMobile(window.innerWidth < 768);
+  }, []);
+
+  const handleFurnitureToggle = useCallback(() => {
+    if (isMobile) return; // Only for desktop
+    setShowFurniturePalette(prev => !prev);
+  }, [isMobile]);
+
+  const handleFurnitureSelect = useCallback((furniture: FurnitureItem) => {
+    setSelectedFurniture(furniture);
   }, []);
 
   // Set initial color based on initial tool
@@ -163,6 +180,7 @@ export const RoomMapApp: React.FC = () => {
             selectedColor={selectedColor}
             onPanCapabilitiesChange={handlePanCapabilitiesChange}
             onUndo={handleUndo}
+            selectedFurniture={selectedFurniture}
           />
         </div>
 
@@ -184,7 +202,20 @@ export const RoomMapApp: React.FC = () => {
           onPanCanvas={handlePanCanvas}
           canPanUp={canPanUp}
           canPanLeft={canPanLeft}
+          onFurnitureToggle={handleFurnitureToggle}
+          showFurniturePalette={showFurniturePalette}
+          isMobile={isMobile}
         />
+        
+        {/* Furniture Palette - Desktop Only */}
+        {!isMobile && (
+          <FurniturePalette
+            isVisible={showFurniturePalette}
+            onToggle={handleFurnitureToggle}
+            onFurnitureSelect={handleFurnitureSelect}
+            selectedFurniture={selectedFurniture?.id || null}
+          />
+        )}
       </div>
     </div>
   );

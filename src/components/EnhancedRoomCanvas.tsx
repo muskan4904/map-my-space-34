@@ -34,9 +34,21 @@ interface TextLabel {
   fontSize: number;
 }
 
+interface Furniture {
+  id: string;
+  position: Point;
+  name: string;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  shape: 'rectangle' | 'circle';
+  selected?: boolean;
+}
+
 interface CanvasAction {
-  type: 'room' | 'freehand' | 'text' | 'delete';
-  data: Room | FreehandPath | TextLabel | { ids: string[], types: string[] };
+  type: 'room' | 'freehand' | 'text' | 'furniture' | 'delete';
+  data: Room | FreehandPath | TextLabel | Furniture | { ids: string[], types: string[] };
 }
 
 interface EnhancedRoomCanvasProps {
@@ -49,6 +61,8 @@ interface EnhancedRoomCanvasProps {
   onPanCanvas?: (direction: 'up' | 'down' | 'left' | 'right') => void;
   onPanCapabilitiesChange?: (canUp: boolean, canLeft: boolean) => void;
   onUndo?: () => void;
+  onFurnitureAdd?: (furniture: Furniture) => void;
+  selectedFurniture?: { id: string; name: string; width: number; height: number; color: string; shape: 'rectangle' | 'circle' } | null;
 }
 
 export interface EnhancedRoomCanvasRef {
@@ -64,7 +78,9 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   selectedColor,
   onPanCanvas,
   onPanCapabilitiesChange,
-  onUndo
+  onUndo,
+  onFurnitureAdd,
+  selectedFurniture
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +88,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const [rooms, setRooms] = useState<Room[]>([]);
   const [freehandPaths, setFreehandPaths] = useState<FreehandPath[]>([]);
   const [textLabels, setTextLabels] = useState<TextLabel[]>([]);
+  const [furniture, setFurniture] = useState<Furniture[]>([]);
   const [currentRoom, setCurrentRoom] = useState<Point[]>([]);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
   const [mousePos, setMousePos] = useState<Point | null>(null);
@@ -83,6 +100,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const [textInput, setTextInput] = useState<{position: Point, value: string, isEditing: boolean, editingId?: string} | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDraggingText, setIsDraggingText] = useState<{id: string, offset: Point} | null>(null);
+  const [isDraggingFurniture, setIsDraggingFurniture] = useState<{id: string, offset: Point} | null>(null);
   const [lastClickTime, setLastClickTime] = useState(0);
   const [lastClickedText, setLastClickedText] = useState<string | null>(null);
   const [currentTool, setCurrentTool] = useState<string>('');
@@ -496,6 +514,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     setRooms([]);
     setFreehandPaths([]);
     setTextLabels([]);
+    setFurniture([]);
     setCurrentRoom([]);
     setCurrentPath([]);
     setActionHistory([]);
@@ -569,6 +588,18 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       }
     }
     
+    // Check furniture items
+    for (const item of furniture) {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * (zoom / 100) * 10;
+      const screenHeight = item.height * (zoom / 100) * 10;
+      
+      if (point.x >= screenPos.x && point.x <= screenPos.x + screenWidth &&
+          point.y >= screenPos.y && point.y <= screenPos.y + screenHeight) {
+        return { type: 'furniture', id: item.id, element: item };
+      }
+    }
+    
     // Check rooms
     for (const room of rooms) {
       if (isPointInRoom(point, room)) {
@@ -632,7 +663,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   }
     
     return null;
-  }, [rooms, freehandPaths, textLabels, isPointInRoom, gridToScreen]);
+  }, [furniture, rooms, freehandPaths, textLabels, isPointInRoom, gridToScreen, zoom]);
 
   // Draw everything
   const draw = useCallback(() => {
@@ -837,6 +868,188 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       ctx.font = `${label.fontSize}px Arial`;
       ctx.textAlign = 'left';
       ctx.fillText(label.text, screenPos.x, screenPos.y);
+    });
+    
+    // Draw furniture items
+    furniture.forEach(item => {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * scale;
+      const screenHeight = item.height * scale;
+      
+      ctx.save();
+      
+      // Move to center of furniture item
+      ctx.translate(screenPos.x + screenWidth / 2, screenPos.y + screenHeight / 2);
+      
+      // Apply rotation
+      if (item.rotation) {
+        ctx.rotate((item.rotation * Math.PI) / 180);
+      }
+      
+      // Draw furniture shape
+      if (item.shape === 'rectangle') {
+        ctx.fillStyle = item.color + '80'; // Semi-transparent
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+        ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      } else if (item.shape === 'circle') {
+        const radius = Math.min(screenWidth, screenHeight) / 2;
+        
+        ctx.fillStyle = item.color + '80';
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Draw furniture name
+      if (zoom > 50) { // Only show names when zoomed in enough
+        ctx.fillStyle = '#000000';
+        const fontSize = Math.max(8, Math.min(12, zoom / 10));
+        ctx.font = `${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(item.name, 0, 0);
+      }
+      
+      ctx.restore();
+      
+      // Draw selection handles when furniture is selected
+      if (item.selected && !isMobile) {
+        const handles = [
+          { x: screenPos.x, y: screenPos.y }, // Top-left
+          { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
+          { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
+          { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
+        ];
+        
+        handles.forEach(handle => {
+          ctx.fillStyle = '#007bff';
+          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+        });
+        
+        // Rotation handle (top center)
+        const rotationHandle = {
+          x: screenPos.x + screenWidth / 2,
+          y: screenPos.y - 20
+        };
+        
+        // Line to rotation handle
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
+        ctx.lineTo(rotationHandle.x, rotationHandle.y);
+        ctx.stroke();
+        
+        // Rotation handle circle
+        ctx.fillStyle = '#28a745';
+        ctx.beginPath();
+        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+    
+    // Draw furniture items
+    furniture.forEach(item => {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * scale;
+      const screenHeight = item.height * scale;
+      
+      ctx.save();
+      
+      // Move to center of furniture item
+      ctx.translate(screenPos.x + screenWidth / 2, screenPos.y + screenHeight / 2);
+      
+      // Apply rotation
+      if (item.rotation) {
+        ctx.rotate((item.rotation * Math.PI) / 180);
+      }
+      
+      // Draw furniture shape
+      if (item.shape === 'rectangle') {
+        ctx.fillStyle = item.color + '80'; // Semi-transparent
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+        ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      } else if (item.shape === 'circle') {
+        const radius = Math.min(screenWidth, screenHeight) / 2;
+        
+        ctx.fillStyle = item.color + '80';
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Draw furniture name
+      if (zoom > 50) { // Only show names when zoomed in enough
+        ctx.fillStyle = '#000000';
+        const fontSize = Math.max(8, Math.min(12, zoom / 10));
+        ctx.font = `${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(item.name, 0, 0);
+      }
+      
+      ctx.restore();
+      
+      // Draw selection handles when furniture is selected
+      if (item.selected && !isMobile) {
+        const handles = [
+          { x: screenPos.x, y: screenPos.y }, // Top-left
+          { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
+          { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
+          { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
+        ];
+        
+        handles.forEach(handle => {
+          ctx.fillStyle = '#007bff';
+          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+        });
+        
+        // Rotation handle (top center)
+        const rotationHandle = {
+          x: screenPos.x + screenWidth / 2,
+          y: screenPos.y - 20
+        };
+        
+        // Line to rotation handle
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
+        ctx.lineTo(rotationHandle.x, rotationHandle.y);
+        ctx.stroke();
+        
+        // Rotation handle circle
+        ctx.fillStyle = '#28a745';
+        ctx.beginPath();
+        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     });
     
     // Draw current room being created
@@ -1080,6 +1293,8 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
           setFreehandPaths(prev => prev.filter(path => path.id !== element.id));
         } else if (element.type === 'text') {
           setTextLabels(prev => prev.filter(label => label.id !== element.id));
+        } else if (element.type === 'furniture') {
+          setFurniture(prev => prev.filter(item => item.id !== element.id));
         }
       }
     }
@@ -1339,6 +1554,41 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
           setMousePos(null);
           onCoordinateChange?.(null);
           setIsDrawing(false);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          try {
+            const furnitureData = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (furnitureData && selectedFurniture) {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) {
+                const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                const gridPos = screenToGrid(point);
+                
+                const newFurniture: Furniture = {
+                  id: Date.now().toString(),
+                  position: gridPos,
+                  name: selectedFurniture.name,
+                  width: selectedFurniture.width,
+                  height: selectedFurniture.height,
+                  rotation: 0,
+                  color: selectedFurniture.color,
+                  shape: selectedFurniture.shape,
+                  selected: false
+                };
+                
+                setFurniture(prev => [...prev, newFurniture]);
+                onFurnitureAdd?.(newFurniture);
+                setActionHistory(prev => [...prev, { type: 'furniture', data: newFurniture }]);
+              }
+            }
+          } catch (error) {
+            console.error('Error parsing furniture data:', error);
+          }
         }}
       />
       

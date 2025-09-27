@@ -17,7 +17,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  Armchair
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +39,9 @@ interface RoomToolbarProps {
   onPanCanvas?: (direction: 'up' | 'down' | 'left' | 'right') => void;
   canPanUp?: boolean;
   canPanLeft?: boolean;
+  onFurnitureToggle?: () => void;
+  showFurniturePalette?: boolean;
+  isMobile?: boolean;
 }
 
 const ROOM_COLORS = [
@@ -61,7 +65,10 @@ export const RoomToolbar: React.FC<RoomToolbarProps> = ({
   totalArea,
   onPanCanvas,
   canPanUp = true,
-  canPanLeft = true
+  canPanLeft = true,
+  onFurnitureToggle,
+  showFurniturePalette = false,
+  isMobile = false
 }) => {
   const tools = [
     { id: 'freehand' as const, icon: Pen, label: 'Freehand Draw' },
@@ -353,6 +360,24 @@ export const RoomToolbar: React.FC<RoomToolbarProps> = ({
               <ZoomIn className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Furniture Toggle - Desktop Only */}
+          {!isMobile && onFurnitureToggle && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-12 w-12 p-0 transition-all duration-200",
+                showFurniturePalette
+                  ? "bg-tool-active text-tool-active-foreground shadow-md"
+                  : "bg-tool-inactive text-tool-inactive-foreground hover:bg-tool-active/10"
+              )}
+              onClick={onFurnitureToggle}
+              title="Furniture"
+            >
+              <Armchair className="h-5 w-5" />
+            </Button>
+          )}
 
           {/* Action Tools */}
           <div className="flex gap-2">
