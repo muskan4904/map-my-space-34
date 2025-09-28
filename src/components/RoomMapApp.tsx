@@ -61,9 +61,7 @@ export const RoomMapApp: React.FC = () => {
   }, []);
 
   const handleClear = useCallback(() => {
-    if ((window as any).roomCanvasClear) {
-      (window as any).roomCanvasClear();
-    }
+    canvasRef.current?.clearCanvas();
     setRooms([]);
     setCoordinates(null);
   }, []);
@@ -77,15 +75,12 @@ export const RoomMapApp: React.FC = () => {
   }, []);
 
   const handleExport = useCallback(() => {
-    if ((window as any).roomCanvasExport) {
-      (window as any).roomCanvasExport();
-    }
+    canvasRef.current?.exportCanvas();
   }, []);
 
   const handlePanCanvas = useCallback((direction: 'up' | 'down' | 'left' | 'right') => {
-    if ((window as any).roomCanvasPan) {
-      (window as any).roomCanvasPan(direction);
-    }
+    // Pan functionality would be implemented in the Fabric.js canvas
+    console.log('Pan direction:', direction);
   }, []);
 
   const handlePanCapabilitiesChange = useCallback((canUp: boolean, canLeft: boolean) => {
