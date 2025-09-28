@@ -582,6 +582,41 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       exportCtx.fillText(label.text, exportPos.x, exportPos.y);
     });
     
+    // Draw furniture items
+    furniture.forEach(item => {
+      const exportPos = gridToExportCanvas(item.position);
+      const exportWidth = item.width * exportScale;
+      const exportHeight = item.height * exportScale;
+      
+      exportCtx.save();
+      
+      // Move to center of furniture item
+      exportCtx.translate(exportPos.x + exportWidth / 2, exportPos.y + exportHeight / 2);
+      
+      // Apply rotation
+      if (item.rotation) {
+        exportCtx.rotate((item.rotation * Math.PI) / 180);
+      }
+      
+      // Get furniture image
+      const imageKey = item.name || 'bed-single';
+      const img = loadedImages[imageKey];
+      
+      if (img) {
+        // Draw furniture image
+        exportCtx.drawImage(img, -exportWidth / 2, -exportHeight / 2, exportWidth, exportHeight);
+      } else {
+        // Fallback rectangle if image not loaded
+        exportCtx.fillStyle = item.color + '80';
+        exportCtx.fillRect(-exportWidth / 2, -exportHeight / 2, exportWidth, exportHeight);
+        exportCtx.strokeStyle = item.color;
+        exportCtx.lineWidth = 2;
+        exportCtx.strokeRect(-exportWidth / 2, -exportHeight / 2, exportWidth, exportHeight);
+      }
+      
+      exportCtx.restore();
+    });
+    
     // Download the image
     const link = document.createElement('a');
     link.download = `room-map-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
@@ -973,7 +1008,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       
       const img = loadedImages[imageKey];
       if (img) {
-        // Draw image
+        // Draw image without background rectangle
         ctx.drawImage(img, -screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
       } else {
         // Fallback to colored rectangle while image loads
@@ -985,121 +1020,13 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       if (item.selected) {
         ctx.strokeStyle = '#007bff';
         ctx.lineWidth = 3;
-        if (item.shape === 'rectangle') {
-          ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
-        } else {
-          const radius = Math.min(screenWidth, screenHeight) / 2;
-          ctx.beginPath();
-          ctx.arc(0, 0, radius, 0, 2 * Math.PI);
-          ctx.stroke();
-        }
-      }
-      
-      // Draw furniture name
-      if (zoom > 50) { // Only show names when zoomed in enough
-        ctx.fillStyle = '#000000';
-        const fontSize = Math.max(8, Math.min(12, zoom / 10));
-        ctx.font = `${fontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(item.name, 0, 0);
-      }
-      
-      ctx.restore();
-      
-      // Draw selection handles when furniture is selected
-      if (item.selected && !isMobile) {
-        const handles = [
-          { x: screenPos.x, y: screenPos.y }, // Top-left
-          { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
-          { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
-          { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
-        ];
-        
-        handles.forEach(handle => {
-          ctx.fillStyle = '#007bff';
-          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
-        });
-        
-        // Rotation handle (top center)
-        const rotationHandle = {
-          x: screenPos.x + screenWidth / 2,
-          y: screenPos.y - 20
-        };
-        
-        // Line to rotation handle
-        ctx.strokeStyle = '#007bff';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
-        ctx.lineTo(rotationHandle.x, rotationHandle.y);
-        ctx.stroke();
-        
-        // Rotation handle circle
-        ctx.fillStyle = '#28a745';
-        ctx.beginPath();
-        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    });
-    
-    // Draw furniture items
-    furniture.forEach(item => {
-      const screenPos = gridToScreen(item.position);
-      const screenWidth = item.width * scale;
-      const screenHeight = item.height * scale;
-      
-      ctx.save();
-      
-      // Move to center of furniture item
-      ctx.translate(screenPos.x + screenWidth / 2, screenPos.y + screenHeight / 2);
-      
-      // Apply rotation
-      if (item.rotation) {
-        ctx.rotate((item.rotation * Math.PI) / 180);
-      }
-      
-      // Draw furniture shape
-      if (item.shape === 'rectangle') {
-        ctx.fillStyle = item.color + '80'; // Semi-transparent
-        ctx.strokeStyle = item.selected ? '#000000' : item.color;
-        ctx.lineWidth = item.selected ? 3 : 2;
-        
-        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
         ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
-      } else if (item.shape === 'circle') {
-        const radius = Math.min(screenWidth, screenHeight) / 2;
-        
-        ctx.fillStyle = item.color + '80';
-        ctx.strokeStyle = item.selected ? '#000000' : item.color;
-        ctx.lineWidth = item.selected ? 3 : 2;
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, radius, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
-      }
-      
-      // Draw furniture name
-      if (zoom > 50) { // Only show names when zoomed in enough
-        ctx.fillStyle = '#000000';
-        const fontSize = Math.max(8, Math.min(12, zoom / 10));
-        ctx.font = `${fontSize}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(item.name, 0, 0);
       }
       
       ctx.restore();
       
       // Draw selection handles when furniture is selected
-      if (item.selected && !isMobile) {
+      if (item.selected) {
         const handles = [
           { x: screenPos.x, y: screenPos.y }, // Top-left
           { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
@@ -1109,21 +1036,21 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         
         handles.forEach(handle => {
           ctx.fillStyle = '#007bff';
-          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.fillRect(handle.x - 6, handle.y - 6, 12, 12);
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.lineWidth = 2;
+          ctx.strokeRect(handle.x - 6, handle.y - 6, 12, 12);
         });
         
         // Rotation handle (top center)
         const rotationHandle = {
           x: screenPos.x + screenWidth / 2,
-          y: screenPos.y - 20
+          y: screenPos.y - 25
         };
         
         // Line to rotation handle
         ctx.strokeStyle = '#007bff';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
         ctx.lineTo(rotationHandle.x, rotationHandle.y);
@@ -1132,10 +1059,10 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         // Rotation handle circle
         ctx.fillStyle = '#28a745';
         ctx.beginPath();
-        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
+        ctx.arc(rotationHandle.x, rotationHandle.y, 8, 0, 2 * Math.PI);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2;
         ctx.stroke();
       }
     });
@@ -1283,7 +1210,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     const gridPos = screenToGrid(point);
     const currentTime = Date.now();
     
-    // Check for double-click on text labels
+    // Check for double-click on text labels and furniture
     const clickedElement = findElementAtPoint(point);
     if (clickedElement && clickedElement.type === 'text') {
       const isDoubleClick = currentTime - lastClickTime < 300 && lastClickedText === clickedElement.id;
@@ -1306,6 +1233,33 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         const screenPos = gridToScreen(textLabel.position);
         setIsDraggingText({
           id: textLabel.id,
+          offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
+        });
+        setLastClickTime(currentTime);
+        setLastClickedText(clickedElement.id);
+        return;
+      }
+    }
+    
+    // Check for double-click on furniture
+    if (clickedElement && clickedElement.type === 'furniture') {
+      const isDoubleClick = currentTime - lastClickTime < 300 && lastClickedText === clickedElement.id;
+      
+      if (isDoubleClick) {
+        // Double-click: Show resize handles by selecting furniture
+        setFurniture(prev => prev.map(item => ({
+          ...item,
+          selected: item.id === clickedElement.id
+        })));
+        setLastClickTime(0);
+        setLastClickedText(null);
+        return;
+      } else {
+        // Single click: Start dragging
+        const furnitureItem = clickedElement.element as Furniture;
+        const screenPos = gridToScreen(furnitureItem.position);
+        setIsDraggingFurniture({
+          id: furnitureItem.id,
           offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
         });
         setLastClickTime(currentTime);
@@ -1373,30 +1327,8 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     } else if (tool === 'label') {
       setTextInput({ position: gridPos, value: '', isEditing: true });
     } else if (tool === 'select') {
-      // Check for furniture selection first
-      const clickedFurniture = furniture.find(item => {
-        const screenPos = gridToScreen(item.position);
-        const screenWidth = item.width * (GRID_SIZE * (zoom / 100));
-        const screenHeight = item.height * (GRID_SIZE * (zoom / 100));
-        
-        return point.x >= screenPos.x && point.x <= screenPos.x + screenWidth &&
-               point.y >= screenPos.y && point.y <= screenPos.y + screenHeight;
-      });
-      
-      if (clickedFurniture) {
-        // Deselect all other furniture and select this one
-        setFurniture(prev => prev.map(item => ({
-          ...item,
-          selected: item.id === clickedFurniture.id
-        })));
-        // Start dragging
-        const screenPos = gridToScreen(clickedFurniture.position);
-        setIsDraggingFurniture({
-          id: clickedFurniture.id,
-          offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
-        });
-      } else {
-        // Deselect all furniture
+      // If no specific element was clicked (text/furniture handled above), deselect all furniture
+      if (!clickedElement) {
         setFurniture(prev => prev.map(item => ({ ...item, selected: false })));
         setIsDraggingFurniture(null);
       }
@@ -1835,7 +1767,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
           {tool === 'select' && (
             <div className="absolute top-4 right-4 bg-gray-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
               <p className="text-sm font-medium">
-                Click to select and move elements
+                Click to select and move elements. Double-click furniture for resize handles.
               </p>
             </div>
           )}
