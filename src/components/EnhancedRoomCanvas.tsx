@@ -136,6 +136,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDraggingText, setIsDraggingText] = useState<{id: string, offset: Point} | null>(null);
   const [isDraggingFurniture, setIsDraggingFurniture] = useState<{id: string, offset: Point} | null>(null);
+  const [isDraggingHandle, setIsDraggingHandle] = useState<{id: string, handleType: 'resize' | 'rotate', handleIndex?: number, startPos: Point, startSize: Point, startRotation: number} | null>(null);
   const [lastClickTime, setLastClickTime] = useState(0);
   const [lastClickedText, setLastClickedText] = useState<string | null>(null);
   const [currentTool, setCurrentTool] = useState<string>('');
@@ -782,6 +783,66 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     return null;
   }, [furniture, rooms, freehandPaths, textLabels, isPointInRoom, gridToScreen, zoom]);
 
+  // Check if point is on furniture handles (resize or rotate)
+  const findFurnitureHandle = useCallback((point: Point, furnitureItem: Furniture) => {
+    if (!furnitureItem.selected) return null;
+    
+    const screenPos = gridToScreen(furnitureItem.position);
+    const scale = GRID_SIZE * (zoom / 100);
+    const screenWidth = furnitureItem.width * scale;
+    const screenHeight = furnitureItem.height * scale;
+    
+    // Check rotation handle (top center)
+    const rotationHandle = {
+      x: screenPos.x + screenWidth / 2,
+      y: screenPos.y - 25
+    };
+    
+    const rotationDistance = Math.sqrt(
+      Math.pow(point.x - rotationHandle.x, 2) + 
+      Math.pow(point.y - rotationHandle.y, 2)
+    );
+    
+    if (rotationDistance < 15) {
+      return { type: 'rotate' as const, handleIndex: -1 };
+    }
+    
+    // Check resize handles (4 corners)
+    const handles = [
+      { x: screenPos.x, y: screenPos.y }, // Top-left
+      { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
+      { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
+      { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
+    ];
+    
+    for (let i = 0; i < handles.length; i++) {
+      const handle = handles[i];
+      const distance = Math.sqrt(
+        Math.pow(point.x - handle.x, 2) + 
+        Math.pow(point.y - handle.y, 2)
+      );
+      
+      if (distance < 15) {
+        return { type: 'resize' as const, handleIndex: i };
+      }
+    }
+    
+    return null;
+  }, [gridToScreen, zoom]);
+
+  // Find any furniture handle at point
+  const findAnyFurnitureHandle = useCallback((point: Point) => {
+    for (const item of furniture) {
+      if (item.selected) {
+        const handle = findFurnitureHandle(point, item);
+        if (handle) {
+          return { ...handle, furnitureId: item.id };
+        }
+      }
+    }
+    return null;
+  }, [furniture, findFurnitureHandle]);
+
   // Draw everything
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1241,31 +1302,49 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       }
     }
     
-    // Check for double-click on furniture
-    if (clickedElement && clickedElement.type === 'furniture') {
-      const isDoubleClick = currentTime - lastClickTime < 300 && lastClickedText === clickedElement.id;
-      
-      if (isDoubleClick) {
-        // Double-click: Show resize handles by selecting furniture
-        setFurniture(prev => prev.map(item => ({
-          ...item,
-          selected: item.id === clickedElement.id
-        })));
-        setLastClickTime(0);
-        setLastClickedText(null);
+    // Check for furniture handle clicks first (highest priority)
+    const furnitureHandle = findAnyFurnitureHandle(point);
+    if (furnitureHandle) {
+      const furnitureItem = furniture.find(item => item.id === furnitureHandle.furnitureId);
+      if (furnitureItem) {
+        const screenPos = gridToScreen(furnitureItem.position);
+        const scale = GRID_SIZE * (zoom / 100);
+        
+        setIsDraggingHandle({
+          id: furnitureHandle.furnitureId,
+          handleType: furnitureHandle.type,
+          handleIndex: furnitureHandle.handleIndex,
+          startPos: point,
+          startSize: { x: furnitureItem.width, y: furnitureItem.height },
+          startRotation: furnitureItem.rotation
+        });
         return;
-      } else {
-        // Single click: Start dragging
-        const furnitureItem = clickedElement.element as Furniture;
+      }
+    }
+    
+    // Check for furniture clicks
+    if (clickedElement && clickedElement.type === 'furniture') {
+      // Single click: Select furniture and show handles, or start dragging if already selected
+      const furnitureItem = clickedElement.element as Furniture;
+      
+      if (furnitureItem.selected) {
+        // Already selected, start dragging
         const screenPos = gridToScreen(furnitureItem.position);
         setIsDraggingFurniture({
           id: furnitureItem.id,
           offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
         });
-        setLastClickTime(currentTime);
-        setLastClickedText(clickedElement.id);
-        return;
+      } else {
+        // Not selected, select it and show handles
+        setFurniture(prev => prev.map(item => ({
+          ...item,
+          selected: item.id === clickedElement.id
+        })));
       }
+      
+      setLastClickTime(currentTime);
+      setLastClickedText(clickedElement.id);
+      return;
     }
     
     // Reset double-click tracking if clicking elsewhere
@@ -1427,6 +1506,71 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       return;
     }
     
+    // Handle furniture handle dragging (resize/rotate)
+    if (isDraggingHandle) {
+      const point = getEventPoint(e);
+      const furnitureItem = furniture.find(item => item.id === isDraggingHandle.id);
+      
+      if (furnitureItem) {
+        if (isDraggingHandle.handleType === 'rotate') {
+          // Calculate rotation based on mouse position relative to furniture center
+          const screenPos = gridToScreen(furnitureItem.position);
+          const scale = GRID_SIZE * (zoom / 100);
+          const centerX = screenPos.x + (furnitureItem.width * scale) / 2;
+          const centerY = screenPos.y + (furnitureItem.height * scale) / 2;
+          
+          const angle = Math.atan2(point.y - centerY, point.x - centerX);
+          const rotationDegrees = (angle * 180 / Math.PI + 90) % 360;
+          
+          setFurniture(prev => prev.map(item => 
+            item.id === isDraggingHandle.id 
+              ? { ...item, rotation: Math.round(rotationDegrees / 15) * 15 } // Snap to 15-degree increments
+              : item
+          ));
+        } else if (isDraggingHandle.handleType === 'resize') {
+          // Calculate new size based on handle being dragged
+          const deltaX = point.x - isDraggingHandle.startPos.x;
+          const deltaY = point.y - isDraggingHandle.startPos.y;
+          const scale = GRID_SIZE * (zoom / 100);
+          
+          // Convert pixel delta to grid units
+          const gridDeltaX = deltaX / scale;
+          const gridDeltaY = deltaY / scale;
+          
+          let newWidth = isDraggingHandle.startSize.x;
+          let newHeight = isDraggingHandle.startSize.y;
+          
+          // Handle different corners
+          switch (isDraggingHandle.handleIndex) {
+            case 0: // Top-left: resize from top-left corner
+              newWidth = Math.max(0.5, isDraggingHandle.startSize.x - gridDeltaX);
+              newHeight = Math.max(0.5, isDraggingHandle.startSize.y - gridDeltaY);
+              break;
+            case 1: // Top-right: resize from top-right corner
+              newWidth = Math.max(0.5, isDraggingHandle.startSize.x + gridDeltaX);
+              newHeight = Math.max(0.5, isDraggingHandle.startSize.y - gridDeltaY);
+              break;
+            case 2: // Bottom-right: resize from bottom-right corner
+              newWidth = Math.max(0.5, isDraggingHandle.startSize.x + gridDeltaX);
+              newHeight = Math.max(0.5, isDraggingHandle.startSize.y + gridDeltaY);
+              break;
+            case 3: // Bottom-left: resize from bottom-left corner
+              newWidth = Math.max(0.5, isDraggingHandle.startSize.x - gridDeltaX);
+              newHeight = Math.max(0.5, isDraggingHandle.startSize.y + gridDeltaY);
+              break;
+          }
+          
+          // Update furniture size
+          setFurniture(prev => prev.map(item => 
+            item.id === isDraggingHandle.id 
+              ? { ...item, width: newWidth, height: newHeight }
+              : item
+          ));
+        }
+      }
+      return;
+    }
+    
     // Handle pinch zoom
     if ('touches' in e && e.touches.length === 2 && isPinching) {
       const distance = getTouchDistance(e.touches);
@@ -1460,6 +1604,12 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     // End furniture dragging
     if (isDraggingFurniture) {
       setIsDraggingFurniture(null);
+      return;
+    }
+    
+    // End handle dragging
+    if (isDraggingHandle) {
+      setIsDraggingHandle(null);
       return;
     }
     
@@ -1767,7 +1917,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
           {tool === 'select' && (
             <div className="absolute top-4 right-4 bg-gray-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
               <p className="text-sm font-medium">
-                Click to select and move elements. Double-click furniture for resize handles.
+                Click to select furniture and show resize handles. Drag to move elements.
               </p>
             </div>
           )}
