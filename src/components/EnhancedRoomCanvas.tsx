@@ -1,7 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
-import { Canvas as FabricCanvas, FabricImage, Polygon, Path, Text, FabricObject } from 'fabric';
-import { Button } from '@/components/ui/button';
-import { X, Check } from 'lucide-react';
+import { Canvas as FabricCanvas, FabricImage, Polygon, FabricObject } from 'fabric';
 
 // Import furniture images
 import bedImage from '@/assets/furniture/bed.png';
@@ -76,10 +74,6 @@ const CANVAS_CONFIG = {
   height: 800
 };
 
-const GRID_SIZE = 20;
-const GRID_OFFSET_X = 25;
-const GRID_OFFSET_Y = 15;
-
 export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, EnhancedRoomCanvasProps>(({
   tool,
   onRoomsChange,
@@ -93,12 +87,13 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   selectedFurniture
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
   const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [roomCount, setRoomCount] = useState(0);
   const [totalArea, setTotalArea] = useState(0);
-  const [mode, setMode] = useState<string>('select');
+  const [mode, setMode] = useState<string>('freehand');
 
   // Update mode when tool changes
   useEffect(() => {
@@ -140,16 +135,6 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         fabricCanvas.renderAll();
         setHistoryIndex(newIndex);
         
-        // Re-attach event handlers after loading from JSON
-        fabricCanvas.getObjects().forEach(obj => {
-          if ((obj as any).objectType === 'furniture') {
-            obj.set({
-              hasControls: false,
-              hasBorders: false
-            });
-          }
-        });
-        
         // Update room count and area
         const objects = fabricCanvas.getObjects();
         const rooms = objects.filter(obj => obj.type === 'polygon');
@@ -168,53 +153,18 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const exportCanvas = useCallback(() => {
     if (!fabricCanvas) return;
 
-    // Create a temporary canvas for export with white background
-    const exportCanvas = new FabricCanvas(null, {
-      width: fabricCanvas.width,
-      height: fabricCanvas.height,
-      backgroundColor: '#ffffff'
+    // Export as PNG
+    const dataURL = fabricCanvas.toDataURL({
+      format: 'png',
+      quality: 1,
+      multiplier: 2 // Higher resolution
     });
 
-    // Get all objects from the original canvas
-    const objects = fabricCanvas.getObjects();
-    
-    // Clone and add each object to the export canvas, ensuring furniture is included
-    const promises = objects.map(obj => {
-      return new Promise<void>((resolve) => {
-        obj.clone().then((cloned: FabricObject) => {
-          // Ensure furniture objects retain their properties
-          if ((obj as any).objectType === 'furniture') {
-            (cloned as any).objectType = 'furniture';
-            cloned.set({
-              hasControls: false,
-              hasBorders: false
-            });
-          }
-          exportCanvas.add(cloned);
-          resolve();
-        });
-      });
-    });
-
-    Promise.all(promises).then(() => {
-      exportCanvas.renderAll();
-      
-      // Export as PNG
-      const dataURL = exportCanvas.toDataURL({
-        format: 'png',
-        quality: 1,
-        multiplier: 2 // Higher resolution
-      });
-
-      // Create download link
-      const link = document.createElement('a');
-      link.download = `room-map-${new Date().getTime()}.png`;
-      link.href = dataURL;
-      link.click();
-
-      // Cleanup
-      exportCanvas.dispose();
-    });
+    // Create download link
+    const link = document.createElement('a');
+    link.download = `room-map-${new Date().getTime()}.png`;
+    link.href = dataURL;
+    link.click();
   }, [fabricCanvas]);
 
   // Clear canvas
@@ -276,107 +226,142 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
 
   // Initialize canvas
   useEffect(() => {
-    if (!canvasRef.current || fabricCanvas) return;
+    if (!canvasRef.current) return;
 
-    const canvas = new FabricCanvas(canvasRef.current, {
-      width: CANVAS_CONFIG.width,
-      height: CANVAS_CONFIG.height,
-      backgroundColor: '#ffffff',
-      selection: mode === 'select'
-    });
+    // Clean up existing canvas
+    if (fabricCanvas) {
+      fabricCanvas.dispose();
+    }
 
-    // Disable context menu
-    canvas.wrapperEl.oncontextmenu = (e) => e.preventDefault();
+    try {
+      const canvas = new FabricCanvas(canvasRef.current, {
+        width: CANVAS_CONFIG.width,
+        height: CANVAS_CONFIG.height,
+        backgroundColor: '#ffffff',
+        selection: mode === 'select'
+      });
 
-    // Handle double-click for furniture selection/deselection
-    canvas.on('mouse:dblclick', (e) => {
-      const target = e.target;
-      if (target && (target as any).objectType === 'furniture') {
-        // Toggle controls and borders on double-click
-        target.set({
-          hasControls: !target.hasControls,
-          hasBorders: !target.hasBorders
-        });
-        canvas.renderAll();
-      }
-    });
+      console.log('Fabric canvas initialized:', canvas);
 
-    // Handle selection events
-    canvas.on('selection:created', (e) => {
-      const target = (e as any).selected?.[0];
-      if (target && (target as any).objectType === 'furniture') {
-        // Show subtle border when selected (single click)
-        target.set({
-          hasBorders: true,
-          hasControls: false,
-          borderColor: '#2563eb',
-          borderOpacity: 0.5
-        });
-        canvas.renderAll();
-      }
-    });
+      // Add basic grid background
+      const drawGrid = () => {
+        const gridSize = 20;
+        const ctx = canvas.getContext();
+        
+        // Clear and set background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, CANVAS_CONFIG.width, CANVAS_CONFIG.height);
+        
+        // Draw grid lines
+        ctx.strokeStyle = '#f0f0f0';
+        ctx.lineWidth = 1;
+        
+        // Vertical lines
+        for (let x = 0; x <= CANVAS_CONFIG.width; x += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, CANVAS_CONFIG.height);
+          ctx.stroke();
+        }
+        
+        // Horizontal lines
+        for (let y = 0; y <= CANVAS_CONFIG.height; y += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(CANVAS_CONFIG.width, y);
+          ctx.stroke();
+        }
+      };
 
-    canvas.on('selection:cleared', () => {
-      // Hide all controls and borders when selection is cleared
-      canvas.getObjects().forEach(obj => {
-        if ((obj as any).objectType === 'furniture') {
-          obj.set({
-            hasControls: false,
-            hasBorders: false
+      // Draw initial grid
+      drawGrid();
+
+      // Handle double-click for furniture selection/deselection
+      canvas.on('mouse:dblclick', (e) => {
+        const target = e.target;
+        if (target && (target as any).objectType === 'furniture') {
+          // Toggle controls and borders on double-click
+          target.set({
+            hasControls: !target.hasControls,
+            hasBorders: !target.hasBorders
           });
+          canvas.renderAll();
         }
       });
-      canvas.renderAll();
-    });
 
-    // Handle object movement for save state
-    canvas.on('object:modified', () => {
-      saveCanvasState();
-    });
-
-    // Handle mouse click to add furniture when one is selected
-    canvas.on('mouse:down', (e) => {
-      if (selectedFurniture && mode === 'select') {
-        const pointer = canvas.getPointer(e.e);
-        addFurniture(selectedFurniture, pointer.x, pointer.y);
-      }
-    });
-
-    // Allow drop for furniture from palette
-    canvas.wrapperEl.addEventListener('dragover', (e) => {
-      e.preventDefault();
-    });
-
-    canvas.wrapperEl.addEventListener('drop', (e) => {
-      e.preventDefault();
-      try {
-        const furnitureData = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
-        if (furnitureData.id) {
-          const rect = canvas.wrapperEl.getBoundingClientRect();
-          const pointer = {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-          };
-          addFurniture(furnitureData, pointer.x, pointer.y);
+      // Handle selection events
+      canvas.on('selection:created', (e) => {
+        const target = canvas.getActiveObject();
+        if (target && (target as any).objectType === 'furniture') {
+          // Show subtle border when selected (single click)
+          target.set({
+            hasBorders: true,
+            hasControls: false,
+            borderColor: '#2563eb',
+            borderOpacity: 0.5
+          });
+          canvas.renderAll();
         }
-      } catch (error) {
-        console.error('Error parsing dropped furniture data:', error);
+      });
+
+      canvas.on('selection:cleared', () => {
+        // Hide all controls and borders when selection is cleared
+        canvas.getObjects().forEach(obj => {
+          if ((obj as any).objectType === 'furniture') {
+            obj.set({
+              hasControls: false,
+              hasBorders: false
+            });
+          }
+        });
+        canvas.renderAll();
+      });
+
+      // Handle object movement for save state
+      canvas.on('object:modified', () => {
+        saveCanvasState();
+      });
+
+      // Handle drop for furniture from palette
+      if (canvas.wrapperEl) {
+        canvas.wrapperEl.addEventListener('dragover', (e) => {
+          e.preventDefault();
+        });
+
+        canvas.wrapperEl.addEventListener('drop', (e) => {
+          e.preventDefault();
+          try {
+            const furnitureData = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
+            if (furnitureData.id) {
+              const rect = canvas.wrapperEl!.getBoundingClientRect();
+              const pointer = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+              };
+              addFurniture(furnitureData, pointer.x, pointer.y);
+            }
+          } catch (error) {
+            console.error('Error parsing dropped furniture data:', error);
+          }
+        });
       }
-    });
 
-    setFabricCanvas(canvas);
+      setFabricCanvas(canvas);
 
-    // Save initial state
-    setTimeout(() => {
-      const state = JSON.stringify(canvas.toJSON());
-      setCanvasHistory([state]);
-      setHistoryIndex(0);
-    }, 100);
+      // Save initial state
+      setTimeout(() => {
+        const state = JSON.stringify(canvas.toJSON());
+        setCanvasHistory([state]);
+        setHistoryIndex(0);
+      }, 100);
 
-    return () => {
-      canvas.dispose();
-    };
-  }, [mode, saveCanvasState, addFurniture]);
+      return () => {
+        canvas.dispose();
+      };
+    } catch (error) {
+      console.error('Error initializing Fabric canvas:', error);
+    }
+  }, []); // Only run once on mount
 
   // Set up drawing mode based on selected tool
   useEffect(() => {
@@ -404,60 +389,6 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
 
   }, [mode, selectedColor, fabricCanvas]);
 
-  // Handle canvas mouse events for room drawing
-  useEffect(() => {
-    if (!fabricCanvas) return;
-
-    let roomPoints: Point[] = [];
-
-    const handleMouseDown = (e: any) => {
-      if (mode !== 'room') return;
-
-      const pointer = fabricCanvas.getPointer(e.e);
-      roomPoints.push({ x: pointer.x, y: pointer.y });
-
-      // If we have enough points, create a room
-      if (roomPoints.length >= 3) {
-        const polygon = new Polygon(roomPoints, {
-          fill: selectedColor,
-          stroke: '#333333',
-          strokeWidth: 2,
-          selectable: true,
-          evented: true,
-          objectCaching: false
-        });
-
-        fabricCanvas.add(polygon);
-        fabricCanvas.renderAll();
-        roomPoints = [];
-        saveCanvasState();
-
-        // Update room count
-        const rooms = fabricCanvas.getObjects().filter(obj => obj.type === 'polygon');
-        setRoomCount(rooms.length);
-      }
-    };
-
-    const handleObjectAdded = () => {
-      // Update total area when objects are added
-      const objects = fabricCanvas.getObjects();
-      const rooms = objects.filter(obj => obj.type === 'polygon');
-      const area = rooms.reduce((sum, room) => {
-        const points = (room as any).points || [];
-        return sum + calculatePolygonArea(points);
-      }, 0);
-      setTotalArea(area);
-    };
-
-    fabricCanvas.on('mouse:down', handleMouseDown);
-    fabricCanvas.on('object:added', handleObjectAdded);
-
-    return () => {
-      fabricCanvas.off('mouse:down', handleMouseDown);
-      fabricCanvas.off('object:added', handleObjectAdded);
-    };
-  }, [fabricCanvas, mode, selectedColor, saveCanvasState, calculatePolygonArea, selectedFurniture, addFurniture]);
-
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
     undo,
@@ -467,8 +398,23 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   }));
 
   return (
-    <div className="relative w-full h-full overflow-hidden">
-      <canvas ref={canvasRef} className="border border-gray-300" />
+    <div className="relative w-full h-full overflow-hidden bg-white">
+      <div 
+        ref={containerRef}
+        className="w-full h-full flex items-center justify-center bg-gray-50"
+      >
+        <canvas 
+          ref={canvasRef}
+          width={CANVAS_CONFIG.width}
+          height={CANVAS_CONFIG.height}
+          className="border border-gray-300 bg-white shadow-lg" 
+          style={{ 
+            maxWidth: '100%',
+            maxHeight: '100%',
+            display: 'block'
+          }}
+        />
+      </div>
       
       {/* Room count and area display */}
       <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
