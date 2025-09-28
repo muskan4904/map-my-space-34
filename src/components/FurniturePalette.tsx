@@ -146,7 +146,10 @@ export const FurniturePalette: React.FC<FurniturePaletteProps> = ({
                           )}
                           draggable
                           onDragStart={(e) => {
-                            e.dataTransfer.setData('application/json', JSON.stringify(item));
+                            e.dataTransfer.setData('application/json', JSON.stringify({
+                              ...item,
+                              imageKey: item.id // Use the ID as the image key
+                            }));
                             onFurnitureSelect(item);
                           }}
                         >

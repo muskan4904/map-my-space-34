@@ -5,6 +5,41 @@ import { Slider } from '@/components/ui/slider';
 import { HorizontalScrollbar, VerticalScrollbar } from '@/components/Scrollbars';
 import { X, Check } from 'lucide-react';
 
+// Import furniture images
+import bedImage from '@/assets/furniture/bed.png';
+import sofaImage from '@/assets/furniture/sofa.png';
+import armchairImage from '@/assets/furniture/armchair.png';
+import tableImage from '@/assets/furniture/table.png';
+import refrigeratorImage from '@/assets/furniture/refrigerator.png';
+import bathtubImage from '@/assets/furniture/bathtub.png';
+import wardrobeImage from '@/assets/furniture/wardrobe.png';
+
+// Furniture image mapping
+const FURNITURE_IMAGES: Record<string, string> = {
+  'bed-single': bedImage,
+  'bed-double': bedImage,
+  'bed-king': bedImage,
+  'sofa-2seat': sofaImage,
+  'sofa-3seat': sofaImage,
+  'armchair': armchairImage,
+  'coffee-table': tableImage,
+  'dining-table': tableImage,
+  'side-table': tableImage,
+  'refrigerator': refrigeratorImage,
+  'stove': refrigeratorImage,
+  'kitchen-island': tableImage,
+  'dining-chair': armchairImage,
+  'bathtub': bathtubImage,
+  'shower': bathtubImage,
+  'toilet': bathtubImage,
+  'sink': bathtubImage,
+  'wardrobe': wardrobeImage,
+  'nightstand': wardrobeImage,
+  'tv-stand': wardrobeImage,
+  'door': wardrobeImage,
+  'window': wardrobeImage
+};
+
 interface Point {
   x: number;
   y: number;
@@ -110,6 +145,41 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   const [lastPinchZoom, setLastPinchZoom] = useState(100);
   const [isMobile, setIsMobile] = useState(false);
   const [isRoomClosed, setIsRoomClosed] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Record<string, HTMLImageElement>>({});
+  
+  // Preload furniture images
+  useEffect(() => {
+    const imagesToLoad = Object.entries(FURNITURE_IMAGES);
+    const loaded: Record<string, HTMLImageElement> = {};
+    
+    imagesToLoad.forEach(([key, src]) => {
+      const img = new Image();
+      img.onload = () => {
+        loaded[key] = img;
+        setLoadedImages(prev => ({ ...prev, [key]: img }));
+      };
+      img.src = src;
+    });
+  }, []);
+  
+  // Add keyboard support for furniture rotation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'r' || e.key === 'R') {
+        const selectedItem = furniture.find(item => item.selected);
+        if (selectedItem) {
+          setFurniture(prev => prev.map(item => 
+            item.id === selectedItem.id 
+              ? { ...item, rotation: (item.rotation + 90) % 360 }
+              : item
+          ));
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [furniture]);
   
   // Handle tool change and tooltip timing
   useEffect(() => {
@@ -294,6 +364,9 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       case 'text':
         setTextLabels(prev => prev.filter(label => label.id !== (lastAction.data as TextLabel).id));
         break;
+      case 'furniture':
+        setFurniture(prev => prev.filter(item => item.id !== (lastAction.data as Furniture).id));
+        break;
       case 'delete':
         const deleteData = lastAction.data as { ids: string[], types: string[] };
         // Restore deleted items (this would need more complex state management in a real app)
@@ -345,6 +418,15 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       minY = Math.min(minY, label.position.y - 1);
       maxX = Math.max(maxX, label.position.x + 2);
       maxY = Math.max(maxY, label.position.y + 1);
+    });
+    
+    // Check furniture
+    furniture.forEach(item => {
+      hasContent = true;
+      minX = Math.min(minX, item.position.x);
+      minY = Math.min(minY, item.position.y);
+      maxX = Math.max(maxX, item.position.x + item.width);
+      maxY = Math.max(maxY, item.position.y + item.height);
     });
     
     if (!hasContent) {
@@ -870,7 +952,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       ctx.fillText(label.text, screenPos.x, screenPos.y);
     });
     
-    // Draw furniture items
+    // Draw furniture items with images
     furniture.forEach(item => {
       const screenPos = gridToScreen(item.position);
       const screenWidth = item.width * scale;
@@ -886,25 +968,31 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         ctx.rotate((item.rotation * Math.PI) / 180);
       }
       
-      // Draw furniture shape
-      if (item.shape === 'rectangle') {
-        ctx.fillStyle = item.color + '80'; // Semi-transparent
-        ctx.strokeStyle = item.selected ? '#000000' : item.color;
-        ctx.lineWidth = item.selected ? 3 : 2;
-        
-        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
-        ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
-      } else if (item.shape === 'circle') {
-        const radius = Math.min(screenWidth, screenHeight) / 2;
-        
+      // Get furniture image key - use the name as the key since it's set from the furniture ID
+      const imageKey = item.name || 'bed-single'; // fallback
+      
+      const img = loadedImages[imageKey];
+      if (img) {
+        // Draw image
+        ctx.drawImage(img, -screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      } else {
+        // Fallback to colored rectangle while image loads
         ctx.fillStyle = item.color + '80';
-        ctx.strokeStyle = item.selected ? '#000000' : item.color;
-        ctx.lineWidth = item.selected ? 3 : 2;
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, radius, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
+        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      }
+      
+      // Draw selection border
+      if (item.selected) {
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 3;
+        if (item.shape === 'rectangle') {
+          ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+        } else {
+          const radius = Math.min(screenWidth, screenHeight) / 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
       }
       
       // Draw furniture name
@@ -1284,6 +1372,34 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       });
     } else if (tool === 'label') {
       setTextInput({ position: gridPos, value: '', isEditing: true });
+    } else if (tool === 'select') {
+      // Check for furniture selection first
+      const clickedFurniture = furniture.find(item => {
+        const screenPos = gridToScreen(item.position);
+        const screenWidth = item.width * (GRID_SIZE * (zoom / 100));
+        const screenHeight = item.height * (GRID_SIZE * (zoom / 100));
+        
+        return point.x >= screenPos.x && point.x <= screenPos.x + screenWidth &&
+               point.y >= screenPos.y && point.y <= screenPos.y + screenHeight;
+      });
+      
+      if (clickedFurniture) {
+        // Deselect all other furniture and select this one
+        setFurniture(prev => prev.map(item => ({
+          ...item,
+          selected: item.id === clickedFurniture.id
+        })));
+        // Start dragging
+        const screenPos = gridToScreen(clickedFurniture.position);
+        setIsDraggingFurniture({
+          id: clickedFurniture.id,
+          offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
+        });
+      } else {
+        // Deselect all furniture
+        setFurniture(prev => prev.map(item => ({ ...item, selected: false })));
+        setIsDraggingFurniture(null);
+      }
     } else if (tool === 'erase') {
       const element = findElementAtPoint(point);
       if (element) {
@@ -1298,7 +1414,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
         }
       }
     }
-  }, [tool, currentRoom, rooms, screenToGrid, gridToScreen, calculateArea, selectedColor, onRoomsChange, findElementAtPoint, getEventPoint, getTouchDistance, zoom, lastClickTime, lastClickedText]);
+  }, [tool, currentRoom, rooms, screenToGrid, gridToScreen, calculateArea, selectedColor, onRoomsChange, findElementAtPoint, getEventPoint, getTouchDistance, zoom, lastClickTime, lastClickedText, furniture]);
   
   // Straighten line if it's approximately straight
   const straightenLine = useCallback((points: Point[]): Point[] => {
@@ -1363,6 +1479,22 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
       return;
     }
     
+    // Handle furniture dragging
+    if (isDraggingFurniture) {
+      const point = getEventPoint(e);
+      const newGridPos = screenToGrid({
+        x: point.x - isDraggingFurniture.offset.x,
+        y: point.y - isDraggingFurniture.offset.y
+      });
+      
+      setFurniture(prev => prev.map(item => 
+        item.id === isDraggingFurniture.id 
+          ? { ...item, position: newGridPos }
+          : item
+      ));
+      return;
+    }
+    
     // Handle pinch zoom
     if ('touches' in e && e.touches.length === 2 && isPinching) {
       const distance = getTouchDistance(e.touches);
@@ -1383,13 +1515,19 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     onCoordinateChange?.(gridPos);
     
     // Freehand tool is now click-based, no need for move handling
-  }, [isDraggingText, getEventPoint, screenToGrid, onCoordinateChange, tool, isDrawing, gridToScreen, isPinching, getTouchDistance, lastPinchDistance, lastPinchZoom, zoom, onZoomChange]);
+  }, [isDraggingText, isDraggingFurniture, getEventPoint, screenToGrid, onCoordinateChange, tool, isDrawing, gridToScreen, isPinching, getTouchDistance, lastPinchDistance, lastPinchZoom, zoom, onZoomChange]);
   
   // Handle mouse/touch end
   const handlePointerUp = useCallback(() => {
     // End text dragging
     if (isDraggingText) {
       setIsDraggingText(null);
+      return;
+    }
+    
+    // End furniture dragging
+    if (isDraggingFurniture) {
+      setIsDraggingFurniture(null);
       return;
     }
     
@@ -1572,7 +1710,7 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
                 const newFurniture: Furniture = {
                   id: Date.now().toString(),
                   position: gridPos,
-                  name: selectedFurniture.name,
+                  name: furnitureData.imageKey || selectedFurniture.name,
                   width: selectedFurniture.width,
                   height: selectedFurniture.height,
                   rotation: 0,
