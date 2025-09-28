@@ -1,5 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
-import { Canvas as FabricCanvas, FabricImage, Polygon, FabricObject } from 'fabric';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
+import { HorizontalScrollbar, VerticalScrollbar } from '@/components/Scrollbars';
+import { X, Check } from 'lucide-react';
 
 // Import furniture images
 import bedImage from '@/assets/furniture/bed.png';
@@ -47,6 +51,39 @@ interface Room {
   label: string;
   area: number;
   color: string;
+  selected?: boolean;
+}
+
+interface FreehandPath {
+  id: string;
+  points: Point[];
+  color: string;
+  width: number;
+}
+
+interface TextLabel {
+  id: string;
+  position: Point;
+  text: string;
+  color: string;
+  fontSize: number;
+}
+
+interface Furniture {
+  id: string;
+  position: Point;
+  name: string;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  shape: 'rectangle' | 'circle';
+  selected?: boolean;
+}
+
+interface CanvasAction {
+  type: 'room' | 'freehand' | 'text' | 'furniture' | 'delete';
+  data: Room | FreehandPath | TextLabel | Furniture | { ids: string[], types: string[] };
 }
 
 interface EnhancedRoomCanvasProps {
@@ -59,20 +96,13 @@ interface EnhancedRoomCanvasProps {
   onPanCanvas?: (direction: 'up' | 'down' | 'left' | 'right') => void;
   onPanCapabilitiesChange?: (canUp: boolean, canLeft: boolean) => void;
   onUndo?: () => void;
+  onFurnitureAdd?: (furniture: Furniture) => void;
   selectedFurniture?: { id: string; name: string; width: number; height: number; color: string; shape: 'rectangle' | 'circle' } | null;
 }
 
 export interface EnhancedRoomCanvasRef {
   undo: () => void;
-  exportCanvas: () => void;
-  clearCanvas: () => void;
-  addFurniture: (furnitureData: any, x: number, y: number) => void;
 }
-
-const CANVAS_CONFIG = {
-  width: 1200,
-  height: 800
-};
 
 export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, EnhancedRoomCanvasProps>(({
   tool,
@@ -84,37 +114,168 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
   onPanCanvas,
   onPanCapabilitiesChange,
   onUndo,
+  onFurnitureAdd,
   selectedFurniture
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
-  const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [roomCount, setRoomCount] = useState(0);
-  const [totalArea, setTotalArea] = useState(0);
-  const [mode, setMode] = useState<string>('freehand');
-
-  // Update mode when tool changes
+  
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [freehandPaths, setFreehandPaths] = useState<FreehandPath[]>([]);
+  const [textLabels, setTextLabels] = useState<TextLabel[]>([]);
+  const [furniture, setFurniture] = useState<Furniture[]>([]);
+  const [currentRoom, setCurrentRoom] = useState<Point[]>([]);
+  const [currentPath, setCurrentPath] = useState<Point[]>([]);
+  const [mousePos, setMousePos] = useState<Point | null>(null);
+  const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
+  const [canPanUp, setCanPanUp] = useState(false);
+  const [canPanLeft, setCanPanLeft] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [actionHistory, setActionHistory] = useState<CanvasAction[]>([]);
+  const [textInput, setTextInput] = useState<{position: Point, value: string, isEditing: boolean, editingId?: string} | null>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [isDraggingText, setIsDraggingText] = useState<{id: string, offset: Point} | null>(null);
+  const [isDraggingFurniture, setIsDraggingFurniture] = useState<{id: string, offset: Point} | null>(null);
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [lastClickedText, setLastClickedText] = useState<string | null>(null);
+  const [currentTool, setCurrentTool] = useState<string>('');
+  const tooltipTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isPinching, setIsPinching] = useState(false);
+  const [lastPinchDistance, setLastPinchDistance] = useState(0);
+  const [lastPinchZoom, setLastPinchZoom] = useState(100);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isRoomClosed, setIsRoomClosed] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Record<string, HTMLImageElement>>({});
+  
+  // Preload furniture images
   useEffect(() => {
-    setMode(tool || 'select');
-  }, [tool]);
-
-  // Save canvas state for undo functionality
-  const saveCanvasState = useCallback(() => {
-    if (!fabricCanvas) return;
+    const imagesToLoad = Object.entries(FURNITURE_IMAGES);
+    const loaded: Record<string, HTMLImageElement> = {};
     
-    const state = JSON.stringify(fabricCanvas.toJSON());
-    setCanvasHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
-      newHistory.push(state);
-      return newHistory;
+    imagesToLoad.forEach(([key, src]) => {
+      const img = new Image();
+      img.onload = () => {
+        loaded[key] = img;
+        setLoadedImages(prev => ({ ...prev, [key]: img }));
+      };
+      img.src = src;
     });
-    setHistoryIndex(prev => prev + 1);
-  }, [fabricCanvas, historyIndex]);
+  }, []);
+  
+  // Add keyboard support for furniture rotation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'r' || e.key === 'R') {
+        const selectedItem = furniture.find(item => item.selected);
+        if (selectedItem) {
+          setFurniture(prev => prev.map(item => 
+            item.id === selectedItem.id 
+              ? { ...item, rotation: (item.rotation + 90) % 360 }
+              : item
+          ));
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [furniture]);
+  
+  // Handle tool change and tooltip timing
+  useEffect(() => {
+    if (tool !== currentTool) {
+      console.log('Tool changed from', currentTool, 'to', tool);
+      
+      // Clear any in-progress drawing states when switching tools
+      if (currentTool === 'room' && tool !== 'room') {
+        console.log('Clearing currentRoom state due to tool change');
+        setCurrentRoom([]);
+        setIsRoomClosed(false);
+      }
+      if (currentTool === 'freehand' && tool !== 'freehand') {
+        setCurrentPath([]);
+        setIsDrawing(false);
+      }
+      
+      setCurrentTool(tool);
+      setShowTooltip(true);
+      
+      // Clear any existing timer
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+      }
+      
+      // Set new timer
+      tooltipTimerRef.current = setTimeout(() => {
+        setShowTooltip(false);
+        tooltipTimerRef.current = null;
+      }, 5000);
+    }
+  }, [tool, currentTool]);
 
-  // Calculate polygon area
-  const calculatePolygonArea = useCallback((points: Point[]): number => {
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768 || 'ontouchstart' in window);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  
+  const GRID_SIZE = 20;
+  const GRID_OFFSET_X = 25; // Left spacing from edge
+  const GRID_OFFSET_Y = 15; // Minimal top spacing for labels
+  
+  // Scrollbar bounds (allow wide panning)
+  const SCROLL_MIN = -4000;
+  const SCROLL_MAX = 0;
+  
+  // Dynamic grid configuration based on zoom level
+  const getGridConfig = useCallback((zoom: number) => {
+    if (zoom >= 200) {
+      return { majorInterval: 1, minorInterval: 0.5, showMinor: true };
+    } else if (zoom >= 150) {
+      return { majorInterval: 1, minorInterval: 1, showMinor: false };
+    } else if (zoom >= 100) {
+      return { majorInterval: 5, minorInterval: 1, showMinor: true };
+    } else if (zoom >= 75) {
+      return { majorInterval: 10, minorInterval: 5, showMinor: true };
+    } else {
+      return { majorInterval: 25, minorInterval: 5, showMinor: false };
+    }
+  }, []);
+
+  // Convert screen to grid coordinates
+  const screenToGrid = useCallback((point: Point): Point => {
+    const scale = GRID_SIZE * (zoom / 100);
+    return {
+      x: Math.round((point.x - viewOffset.x - GRID_OFFSET_X) / scale),
+      y: Math.round((point.y - viewOffset.y - GRID_OFFSET_Y) / scale)
+    };
+  }, [zoom, viewOffset]);
+  
+  // Convert grid to screen coordinates
+  const gridToScreen = useCallback((point: Point): Point => {
+    const scale = GRID_SIZE * (zoom / 100);
+    return {
+      x: point.x * scale + viewOffset.x + GRID_OFFSET_X,
+      y: point.y * scale + viewOffset.y + GRID_OFFSET_Y
+    };
+  }, [zoom, viewOffset]);
+  
+  // Calculate area
+  const calculateArea = useCallback((points: Point[]): number => {
     if (points.length < 3) return 0;
     let area = 0;
     for (let i = 0; i < points.length; i++) {
@@ -125,317 +286,1562 @@ export const EnhancedRoomCanvas = React.forwardRef<EnhancedRoomCanvasRef, Enhanc
     return Math.abs(area) / 2;
   }, []);
 
-  // Undo function
-  const undo = useCallback(() => {
-    if (historyIndex > 0 && fabricCanvas) {
-      const newIndex = historyIndex - 1;
-      const state = canvasHistory[newIndex];
-      
-      fabricCanvas.loadFromJSON(state, () => {
-        fabricCanvas.renderAll();
-        setHistoryIndex(newIndex);
-        
-        // Update room count and area
-        const objects = fabricCanvas.getObjects();
-        const rooms = objects.filter(obj => obj.type === 'polygon');
-        setRoomCount(rooms.length);
-        
-        const totalArea = rooms.reduce((sum, room) => {
-          const area = calculatePolygonArea((room as any).points || []);
-          return sum + area;
-        }, 0);
-        setTotalArea(totalArea);
-      });
-    }
-  }, [historyIndex, canvasHistory, fabricCanvas, calculatePolygonArea]);
-
-  // Export canvas
-  const exportCanvas = useCallback(() => {
-    if (!fabricCanvas) return;
-
-    // Export as PNG
-    const dataURL = fabricCanvas.toDataURL({
-      format: 'png',
-      quality: 1,
-      multiplier: 2 // Higher resolution
-    });
-
-    // Create download link
-    const link = document.createElement('a');
-    link.download = `room-map-${new Date().getTime()}.png`;
-    link.href = dataURL;
-    link.click();
-  }, [fabricCanvas]);
-
-  // Clear canvas
-  const clearCanvas = useCallback(() => {
-    if (!fabricCanvas) return;
-    fabricCanvas.clear();
-    fabricCanvas.backgroundColor = '#ffffff';
-    fabricCanvas.renderAll();
-    setRoomCount(0);
-    setTotalArea(0);
-    saveCanvasState();
-  }, [fabricCanvas, saveCanvasState]);
-
-  // Add furniture to canvas
-  const addFurniture = useCallback((furnitureData: any, x: number, y: number) => {
-    if (!fabricCanvas) return;
-
-    const imageKey = furnitureData.imageKey || furnitureData.id;
-    const imagePath = FURNITURE_IMAGES[imageKey] || FURNITURE_IMAGES['bed-single'];
+  // Check if a 4-point polygon is a rectangle
+  const checkIfRectangle = useCallback((points: Point[]): boolean => {
+    if (points.length !== 4) return false;
     
-    // Create a fabric image
-    FabricImage.fromURL(imagePath).then((img) => {
-      if (!img) return;
-      
-      const gridSize = 20;
-      const furnitureWidth = furnitureData.width * gridSize;
-      const furnitureHeight = furnitureData.height * gridSize;
-      
-      // Add custom properties
-      (img as any).furnitureData = furnitureData;
-      (img as any).objectType = 'furniture';
-      
-      img.set({
-        left: x,
-        top: y,
-        scaleX: furnitureWidth / (img.width || 1),
-        scaleY: furnitureHeight / (img.height || 1),
-        selectable: true,
-        evented: true,
-        hasControls: false, // Hide controls initially
-        hasBorders: false,  // Hide borders initially
-        transparentCorners: false,
-        cornerColor: '#2563eb',
-        cornerStyle: 'rect',
-        borderColor: '#2563eb',
-        borderScaleFactor: 2,
-        padding: 5
+    // Check if opposite sides are parallel and equal
+    // For a rectangle in grid coordinates, we expect:
+    // - Two pairs of parallel sides
+    // - All angles to be 90 degrees (or close enough for grid alignment)
+    
+    const sides = [];
+    for (let i = 0; i < 4; i++) {
+      const current = points[i];
+      const next = points[(i + 1) % 4];
+      sides.push({
+        dx: next.x - current.x,
+        dy: next.y - current.y,
+        length: Math.sqrt(Math.pow(next.x - current.x, 2) + Math.pow(next.y - current.y, 2))
       });
-
-      fabricCanvas.add(img);
-      fabricCanvas.renderAll();
-      
-      // Add to history for undo functionality
-      saveCanvasState();
-    }).catch((error) => {
-      console.error('Error loading furniture image:', error);
-    });
-  }, [fabricCanvas, saveCanvasState]);
-
-  // Initialize canvas
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    // Clean up existing canvas
-    if (fabricCanvas) {
-      fabricCanvas.dispose();
     }
+    
+    // Check if opposite sides are equal and parallel
+    const side1 = sides[0];
+    const side2 = sides[1];
+    const side3 = sides[2];
+    const side4 = sides[3];
+    
+    // For a rectangle: side1 should be parallel to side3, side2 should be parallel to side4
+    const parallel13 = Math.abs(side1.dx * side3.dy - side1.dy * side3.dx) < 0.1;
+    const parallel24 = Math.abs(side2.dx * side4.dy - side2.dy * side4.dx) < 0.1;
+    
+    // Check if opposite sides have same length
+    const equalLength13 = Math.abs(side1.length - side3.length) < 0.1;
+    const equalLength24 = Math.abs(side2.length - side4.length) < 0.1;
+    
+    // Check if adjacent sides are perpendicular
+    const perpendicular12 = Math.abs(side1.dx * side2.dx + side1.dy * side2.dy) < 0.1;
+    
+    return parallel13 && parallel24 && equalLength13 && equalLength24 && perpendicular12;
+  }, []);
 
-    try {
-      const canvas = new FabricCanvas(canvasRef.current, {
-        width: CANVAS_CONFIG.width,
-        height: CANVAS_CONFIG.height,
-        backgroundColor: '#ffffff',
-        selection: mode === 'select'
-      });
-
-      console.log('Fabric canvas initialized:', canvas);
-
-      // Add basic grid background
-      const drawGrid = () => {
-        const gridSize = 20;
-        const ctx = canvas.getContext();
-        
-        // Clear and set background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, CANVAS_CONFIG.width, CANVAS_CONFIG.height);
-        
-        // Draw grid lines
-        ctx.strokeStyle = '#f0f0f0';
-        ctx.lineWidth = 1;
-        
-        // Vertical lines
-        for (let x = 0; x <= CANVAS_CONFIG.width; x += gridSize) {
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, CANVAS_CONFIG.height);
-          ctx.stroke();
+  // Undo last action or point
+  const handleUndo = useCallback(() => {
+    // First priority: If room tool is active and has points, remove last point
+    if (tool === 'room' && currentRoom.length > 0) {
+      console.log('Undoing last point from currentRoom, was:', currentRoom.length);
+      setCurrentRoom(prev => {
+        const newRoom = prev.slice(0, -1);
+        console.log('After undo, currentRoom length:', newRoom.length);
+        // Reset room closed state if we have fewer than 3 points
+        if (newRoom.length < 3) {
+          setIsRoomClosed(false);
         }
-        
-        // Horizontal lines
-        for (let y = 0; y <= CANVAS_CONFIG.height; y += gridSize) {
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(CANVAS_CONFIG.width, y);
-          ctx.stroke();
-        }
-      };
-
-      // Draw initial grid
-      drawGrid();
-
-      // Handle double-click for furniture selection/deselection
-      canvas.on('mouse:dblclick', (e) => {
-        const target = e.target;
-        if (target && (target as any).objectType === 'furniture') {
-          // Toggle controls and borders on double-click
-          target.set({
-            hasControls: !target.hasControls,
-            hasBorders: !target.hasBorders
-          });
-          canvas.renderAll();
-        }
+        return newRoom;
       });
+      return;
+    }
+    
+    // Second priority: If freehand tool is active and has points, remove last point
+    if (tool === 'freehand' && currentPath.length > 0) {
+      setCurrentPath(prev => prev.slice(0, -1));
+      return;
+    }
+    
+    // Third priority: Undo completed actions
+    if (actionHistory.length === 0) return;
+    
+    const lastAction = actionHistory[actionHistory.length - 1];
+    
+    switch (lastAction.type) {
+      case 'room':
+        setRooms(prev => prev.filter(room => room.id !== (lastAction.data as Room).id));
+        break;
+      case 'freehand':
+        setFreehandPaths(prev => prev.filter(path => path.id !== (lastAction.data as FreehandPath).id));
+        break;
+      case 'text':
+        setTextLabels(prev => prev.filter(label => label.id !== (lastAction.data as TextLabel).id));
+        break;
+      case 'furniture':
+        setFurniture(prev => prev.filter(item => item.id !== (lastAction.data as Furniture).id));
+        break;
+      case 'delete':
+        const deleteData = lastAction.data as { ids: string[], types: string[] };
+        // Restore deleted items (this would need more complex state management in a real app)
+        break;
+    }
+    
+    setActionHistory(prev => prev.slice(0, -1));
+  }, [actionHistory, tool, currentRoom, currentPath]);
 
-      // Handle selection events
-      canvas.on('selection:created', (e) => {
-        const target = canvas.getActiveObject();
-        if (target && (target as any).objectType === 'furniture') {
-          // Show subtle border when selected (single click)
-          target.set({
-            hasBorders: true,
-            hasControls: false,
-            borderColor: '#2563eb',
-            borderOpacity: 0.5
-          });
-          canvas.renderAll();
-        }
-      });
-
-      canvas.on('selection:cleared', () => {
-        // Hide all controls and borders when selection is cleared
-        canvas.getObjects().forEach(obj => {
-          if ((obj as any).objectType === 'furniture') {
-            obj.set({
-              hasControls: false,
-              hasBorders: false
-            });
-          }
-        });
-        canvas.renderAll();
-      });
-
-      // Handle object movement for save state
-      canvas.on('object:modified', () => {
-        saveCanvasState();
-      });
-
-      // Handle drop for furniture from palette
-      if (canvas.wrapperEl) {
-        canvas.wrapperEl.addEventListener('dragover', (e) => {
-          e.preventDefault();
-        });
-
-        canvas.wrapperEl.addEventListener('drop', (e) => {
-          e.preventDefault();
-          try {
-            const furnitureData = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
-            if (furnitureData.id) {
-              const rect = canvas.wrapperEl!.getBoundingClientRect();
-              const pointer = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top
-              };
-              addFurniture(furnitureData, pointer.x, pointer.y);
-            }
-          } catch (error) {
-            console.error('Error parsing dropped furniture data:', error);
-          }
+  // Export canvas without grid
+  const handleExport = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Find bounds of all drawn content in grid coordinates
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let hasContent = false;
+    
+    // Check rooms
+    rooms.forEach(room => {
+      if (room.points.length >= 3) {
+        hasContent = true;
+        room.points.forEach(point => {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
         });
       }
-
-      setFabricCanvas(canvas);
-
-      // Save initial state
-      setTimeout(() => {
-        const state = JSON.stringify(canvas.toJSON());
-        setCanvasHistory([state]);
-        setHistoryIndex(0);
-      }, 100);
-
-      return () => {
-        canvas.dispose();
-      };
-    } catch (error) {
-      console.error('Error initializing Fabric canvas:', error);
-    }
-  }, []); // Only run once on mount
-
-  // Set up drawing mode based on selected tool
-  useEffect(() => {
-    if (!fabricCanvas) return;
-
-    fabricCanvas.isDrawingMode = mode === 'freehand';
+    });
     
-    if (mode === 'freehand' && fabricCanvas.freeDrawingBrush) {
-      fabricCanvas.freeDrawingBrush.color = selectedColor;
-      fabricCanvas.freeDrawingBrush.width = 2;
+    // Check freehand paths
+    freehandPaths.forEach(path => {
+      if (path.points.length >= 2) {
+        hasContent = true;
+        path.points.forEach(point => {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        });
+      }
+    });
+    
+    // Check text labels
+    textLabels.forEach(label => {
+      hasContent = true;
+      minX = Math.min(minX, label.position.x - 2);
+      minY = Math.min(minY, label.position.y - 1);
+      maxX = Math.max(maxX, label.position.x + 2);
+      maxY = Math.max(maxY, label.position.y + 1);
+    });
+    
+    // Check furniture
+    furniture.forEach(item => {
+      hasContent = true;
+      minX = Math.min(minX, item.position.x);
+      minY = Math.min(minY, item.position.y);
+      maxX = Math.max(maxX, item.position.x + item.width);
+      maxY = Math.max(maxY, item.position.y + item.height);
+    });
+    
+    if (!hasContent) {
+      alert('No content to export. Please draw something first.');
+      return;
     }
-
-    fabricCanvas.selection = mode === 'select';
-
-    // Set cursor based on mode
-    if (mode === 'room') {
-      fabricCanvas.defaultCursor = 'crosshair';
-    } else if (mode === 'freehand') {
-      fabricCanvas.defaultCursor = 'crosshair';
-    } else if (mode === 'erase') {
-      fabricCanvas.defaultCursor = 'not-allowed';
-    } else {
-      fabricCanvas.defaultCursor = 'default';
+    
+    // Add padding in grid units
+    const gridPadding = 2;
+    minX -= gridPadding;
+    minY -= gridPadding;
+    maxX += gridPadding;
+    maxY += gridPadding;
+    
+    // Calculate export dimensions based on content bounds
+    const gridWidth = maxX - minX;
+    const gridHeight = maxY - minY;
+    
+    // Calculate professional export dimensions
+    // Base scale for good visual quality (pixels per grid unit)
+    const baseScale = 40; // Increased from 20 for better quality
+    
+    // Calculate ideal dimensions
+    let exportWidth = gridWidth * baseScale;
+    let exportHeight = gridHeight * baseScale;
+    
+    // Set professional size constraints
+    const minExportSize = 800; // Minimum dimension for professional quality
+    const maxExportSize = 2400; // Maximum to prevent overly large files
+    
+    // Ensure minimum professional size
+    if (Math.max(exportWidth, exportHeight) < minExportSize) {
+      const scaleUpFactor = minExportSize / Math.max(exportWidth, exportHeight);
+      exportWidth *= scaleUpFactor;
+      exportHeight *= scaleUpFactor;
     }
-
-  }, [mode, selectedColor, fabricCanvas]);
-
-  // Expose methods via ref
-  useImperativeHandle(ref, () => ({
-    undo,
-    exportCanvas,
-    clearCanvas,
-    addFurniture
-  }));
-
-  return (
-    <div className="relative w-full h-full overflow-hidden bg-white">
-      <div 
-        ref={containerRef}
-        className="w-full h-full flex items-center justify-center bg-gray-50"
-      >
-        <canvas 
-          ref={canvasRef}
-          width={CANVAS_CONFIG.width}
-          height={CANVAS_CONFIG.height}
-          className="border border-gray-300 bg-white shadow-lg" 
-          style={{ 
-            maxWidth: '100%',
-            maxHeight: '100%',
-            display: 'block'
-          }}
-        />
-      </div>
+    
+    // Limit maximum size while maintaining aspect ratio
+    if (Math.max(exportWidth, exportHeight) > maxExportSize) {
+      const scaleDownFactor = maxExportSize / Math.max(exportWidth, exportHeight);
+      exportWidth *= scaleDownFactor;
+      exportHeight *= scaleDownFactor;
+    }
+    
+    // Calculate the final scale factor
+    const exportScale = exportWidth / gridWidth;
+    
+    // Create high-resolution export canvas
+    const exportCanvas = document.createElement('canvas');
+    const exportCtx = exportCanvas.getContext('2d');
+    if (!exportCtx) return;
+    
+    exportCanvas.width = exportWidth;
+    exportCanvas.height = exportHeight;
+    
+    // Set high quality rendering
+    exportCtx.imageSmoothingEnabled = true;
+    exportCtx.imageSmoothingQuality = 'high';
+    
+    // White background
+    exportCtx.fillStyle = '#ffffff';
+    exportCtx.fillRect(0, 0, exportWidth, exportHeight);
+    
+    // Helper function to convert grid coords to export canvas coords
+    const gridToExportCanvas = (point: Point): Point => ({
+      x: (point.x - minX) * exportScale,
+      y: (point.y - minY) * exportScale
+    });
+    
+    // Draw rooms
+    rooms.forEach(room => {
+      if (room.points.length < 3) return;
+      const exportPoints = room.points.map(gridToExportCanvas);
       
-      {/* Room count and area display */}
-      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
-        <div className="text-sm font-medium text-gray-900">
-          {roomCount} rooms • {totalArea.toFixed(0)} sq ft total
-        </div>
-      </div>
+      exportCtx.fillStyle = room.color;
+      exportCtx.beginPath();
+      exportCtx.moveTo(exportPoints[0].x, exportPoints[0].y);
+      exportPoints.slice(1).forEach(point => {
+        exportCtx.lineTo(point.x, point.y);
+      });
+      exportCtx.closePath();
+      exportCtx.fill();
+      
+      exportCtx.strokeStyle = '#333333';
+      exportCtx.lineWidth = 2;
+      exportCtx.stroke();
+      
+      // Draw room measurements (always on mobile; desktop for rectangles or selected rooms)
+      {
+        const isRectangle = room.points.length === 4 && checkIfRectangle(room.points);
+        const shouldShowMeasurements = isMobile || room.selected || isRectangle;
+        
+        if (shouldShowMeasurements) {
+          const xs = room.points.map(p => p.x);
+          const ys = room.points.map(p => p.y);
+          const width = Math.abs(Math.max(...xs) - Math.min(...xs));
+          const height = Math.abs(Math.max(...ys) - Math.min(...ys));
+          
+          if (width > 0 && height > 0) {
+            // Calculate center for dimension text
+            const centerX = exportPoints.reduce((sum, p) => sum + p.x, 0) / exportPoints.length;
+            const centerY = exportPoints.reduce((sum, p) => sum + p.y, 0) / exportPoints.length;
+            
+            const fontSize = Math.max(14, exportScale * 0.8);
+            exportCtx.font = `bold ${fontSize}px system-ui, -apple-system, Segoe UI, Arial`;
+            exportCtx.textAlign = 'center';
+            exportCtx.textBaseline = 'middle';
+            
+            // Add background for better readability
+            const dimensionText = `${width}×${height} ft`;
+            const textMetrics = exportCtx.measureText(dimensionText);
+            const padding = Math.max(6, fontSize * 0.3);
+            
+            exportCtx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+            exportCtx.fillRect(
+              centerX - textMetrics.width / 2 - padding,
+              centerY - fontSize / 2 - padding / 2,
+              textMetrics.width + padding * 2,
+              fontSize + padding
+            );
+            
+            exportCtx.fillStyle = '#000000';
+            exportCtx.fillText(dimensionText, centerX, centerY);
+          }
+        }
+      }
+    });
+    
+    // Draw freehand paths
+    freehandPaths.forEach(path => {
+      if (path.points.length < 2) return;
+      const exportPoints = path.points.map(gridToExportCanvas);
+      
+      exportCtx.strokeStyle = path.color.replace('40', '');
+      exportCtx.lineWidth = Math.max(2, path.width * 0.8);
+      exportCtx.lineCap = 'round';
+      exportCtx.lineJoin = 'round';
+      
+      exportCtx.beginPath();
+      exportCtx.moveTo(exportPoints[0].x, exportPoints[0].y);
+      exportPoints.slice(1).forEach(point => {
+        exportCtx.lineTo(point.x, point.y);
+      });
+      exportCtx.stroke();
+    });
+    
+    // Draw text labels
+    textLabels.forEach(label => {
+      const exportPos = gridToExportCanvas(label.position);
+      exportCtx.fillStyle = label.color;
+      exportCtx.font = `${Math.max(12, label.fontSize * 0.8)}px Arial`;
+      exportCtx.textAlign = 'left';
+      exportCtx.fillText(label.text, exportPos.x, exportPos.y);
+    });
+    
+    // Download the image
+    const link = document.createElement('a');
+    link.download = `room-map-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+    link.href = exportCanvas.toDataURL('image/png', 1.0);
+    link.click();
+    
+    console.log('Map exported successfully!');
+  }, [rooms, freehandPaths, textLabels, isMobile, checkIfRectangle]);
 
-      {/* Drawing mode indicator */}
-      {mode && mode !== 'select' && (
-        <div className="absolute top-4 right-4 bg-primary/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
-          <div className="text-sm font-medium text-white">
-            {mode === 'room' && 'Click to add room points'}
-            {mode === 'freehand' && 'Draw freehand'}
-            {mode === 'label' && 'Click to add label'}
-            {mode === 'erase' && 'Click to erase'}
+  // Clear canvas
+  const handleClear = useCallback(() => {
+    setRooms([]);
+    setFreehandPaths([]);
+    setTextLabels([]);
+    setFurniture([]);
+    setCurrentRoom([]);
+    setCurrentPath([]);
+    setActionHistory([]);
+    setTextInput(null);
+    setIsRoomClosed(false);
+    onRoomsChange?.([]);
+  }, [onRoomsChange]);
+
+  // Pan canvas in specified direction
+  const handlePanCanvas = useCallback((direction: 'up' | 'down' | 'left' | 'right') => {
+    const panAmount = 50; // pixels to pan
+    setViewOffset(prev => {
+      let newOffset = { ...prev };
+      switch (direction) {
+        case 'up':
+          newOffset.y = prev.y + panAmount;
+          break;
+        case 'down':
+          newOffset.y = prev.y - panAmount;
+          break;
+        case 'left':
+          newOffset.x = prev.x + panAmount;
+          break;
+        case 'right':
+          newOffset.x = prev.x - panAmount;
+          break;
+        default:
+          return prev;
+      }
+      // Clamp so we never go past grid origin (0,0) on top/left
+      newOffset.x = Math.min(0, Math.max(SCROLL_MIN, newOffset.x));
+      newOffset.y = Math.min(0, Math.max(SCROLL_MIN, newOffset.y));
+      return newOffset;
+    });
+  }, []);
+  
+  // Update pan capabilities based on current view offset
+  useEffect(() => {
+    const newCanPanUp = viewOffset.y >= 50;
+    const newCanPanLeft = viewOffset.x >= 50;
+    setCanPanUp(newCanPanUp);
+    setCanPanLeft(newCanPanLeft);
+    onPanCapabilitiesChange?.(newCanPanUp, newCanPanLeft);
+  }, [viewOffset, onPanCapabilitiesChange]);
+
+  // Check if point is inside room
+  const isPointInRoom = useCallback((point: Point, room: Room): boolean => {
+    const screenPoints = room.points.map(gridToScreen);
+    let inside = false;
+    
+    for (let i = 0, j = screenPoints.length - 1; i < screenPoints.length; j = i++) {
+      if (((screenPoints[i].y > point.y) !== (screenPoints[j].y > point.y)) &&
+          (point.x < (screenPoints[j].x - screenPoints[i].x) * (point.y - screenPoints[i].y) / (screenPoints[j].y - screenPoints[i].y) + screenPoints[i].x)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }, [gridToScreen]);
+
+  // Find element at point for erasing
+  const findElementAtPoint = useCallback((point: Point) => {
+    // Check text labels first (smaller target, should be checked first)
+    for (const label of textLabels) {
+      const screenPos = gridToScreen(label.position);
+      const distance = Math.sqrt(
+        Math.pow(point.x - screenPos.x, 2) + 
+        Math.pow(point.y - screenPos.y, 2)
+      );
+      if (distance < 30) {
+        return { type: 'text', id: label.id, element: label };
+      }
+    }
+    
+    // Check furniture items
+    for (const item of furniture) {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * (zoom / 100) * 10;
+      const screenHeight = item.height * (zoom / 100) * 10;
+      
+      if (point.x >= screenPos.x && point.x <= screenPos.x + screenWidth &&
+          point.y >= screenPos.y && point.y <= screenPos.y + screenHeight) {
+        return { type: 'furniture', id: item.id, element: item };
+      }
+    }
+    
+    // Check rooms
+    for (const room of rooms) {
+      if (isPointInRoom(point, room)) {
+        return { type: 'room', id: room.id, element: room };
+      }
+    }
+    
+  // Check freehand paths - check both points and line segments
+  for (const path of freehandPaths) {
+    // Check points
+    for (const pathPoint of path.points) {
+      const screenPoint = gridToScreen(pathPoint);
+      const distance = Math.sqrt(
+        Math.pow(point.x - screenPoint.x, 2) + 
+        Math.pow(point.y - screenPoint.y, 2)
+      );
+      if (distance < 10) {
+        return { type: 'freehand', id: path.id, element: path };
+      }
+    }
+    
+    // Check line segments between points
+    for (let i = 0; i < path.points.length - 1; i++) {
+      const start = gridToScreen(path.points[i]);
+      const end = gridToScreen(path.points[i + 1]);
+      
+      // Calculate distance from point to line segment
+      const A = point.x - start.x;
+      const B = point.y - start.y;
+      const C = end.x - start.x;
+      const D = end.y - start.y;
+      
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      
+      if (lenSq === 0) continue; // Zero length segment
+      
+      const param = dot / lenSq;
+      
+      let xx, yy;
+      
+      if (param < 0) {
+        xx = start.x;
+        yy = start.y;
+      } else if (param > 1) {
+        xx = end.x;
+        yy = end.y;
+      } else {
+        xx = start.x + param * C;
+        yy = start.y + param * D;
+      }
+      
+      const dx = point.x - xx;
+      const dy = point.y - yy;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < 10) {
+        return { type: 'freehand', id: path.id, element: path };
+      }
+    }
+  }
+    
+    return null;
+  }, [furniture, rooms, freehandPaths, textLabels, isPointInRoom, gridToScreen, zoom]);
+
+  // Draw everything
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const { width, height } = canvas;
+    const scale = GRID_SIZE * (zoom / 100);
+    
+    // Clear canvas
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw grid with dynamic scaling
+    const gridConfig = getGridConfig(zoom);
+    const majorScale = scale * gridConfig.majorInterval;
+    const minorScale = scale * gridConfig.minorInterval;
+    
+    // Draw minor grid lines
+    if (gridConfig.showMinor && gridConfig.minorInterval !== gridConfig.majorInterval) {
+      ctx.strokeStyle = '#f0f0f0';
+      ctx.lineWidth = 0.5;
+      
+      // Vertical minor lines
+      for (let x = (viewOffset.x % minorScale) + GRID_OFFSET_X; x < width; x += minorScale) {
+        // Skip if this is a major line
+        const gridX = Math.round((x - viewOffset.x - GRID_OFFSET_X) / scale);
+        if (gridX % gridConfig.majorInterval !== 0) {
+          ctx.beginPath();
+          ctx.moveTo(x, GRID_OFFSET_Y);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+        }
+      }
+      
+      // Horizontal minor lines
+      for (let y = (viewOffset.y % minorScale) + GRID_OFFSET_Y; y < height; y += minorScale) {
+        // Skip if this is a major line
+        const gridY = Math.round((y - viewOffset.y - GRID_OFFSET_Y) / scale);
+        if (gridY % gridConfig.majorInterval !== 0) {
+          ctx.beginPath();
+          ctx.moveTo(GRID_OFFSET_X, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+      }
+    }
+    
+    // Draw major grid lines (darker for better visibility)
+    ctx.strokeStyle = '#9ca3af';
+    ctx.lineWidth = 1;
+    
+    // Vertical major lines
+    for (let x = (viewOffset.x % majorScale) + GRID_OFFSET_X; x < width; x += majorScale) {
+      ctx.beginPath();
+      ctx.moveTo(x, GRID_OFFSET_Y);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    
+    // Horizontal major lines
+    for (let y = (viewOffset.y % majorScale) + GRID_OFFSET_Y; y < height; y += majorScale) {
+      ctx.beginPath();
+      ctx.moveTo(GRID_OFFSET_X, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+    
+    // Draw grid labels (only for major lines) - darker for better visibility
+    ctx.fillStyle = '#374151';
+    ctx.font = `${Math.max(8, Math.min(12, zoom / 10))}px Arial`;
+    ctx.textAlign = 'center';
+    
+    // X-axis labels (major intervals only)
+    for (let i = 0; i < width / majorScale + 2; i++) {
+      const x = (viewOffset.x % majorScale) + i * majorScale + GRID_OFFSET_X;
+      const gridX = Math.round((x - viewOffset.x - GRID_OFFSET_X) / scale);
+      if (gridX >= 0) {
+        // Always show 0 at origin with more spacing, otherwise show labels with padding
+        if (gridX === 0 || (x > GRID_OFFSET_X + 20 && x < width - 20)) {
+          ctx.fillText(`${gridX}ft`, x, GRID_OFFSET_Y - 2);
+        }
+      }
+    }
+    
+    // Y-axis labels (major intervals only)
+    ctx.save();
+    ctx.textAlign = 'center';
+    for (let i = 0; i < height / majorScale + 2; i++) {
+      const y = (viewOffset.y % majorScale) + i * majorScale + GRID_OFFSET_Y;
+      const gridY = Math.round((y - viewOffset.y - GRID_OFFSET_Y) / scale);
+      if (gridY >= 0) {
+        // Always show 0 at origin with more spacing, otherwise show labels with padding
+        if (gridY === 0 || (y > GRID_OFFSET_Y + 20 && y < height - 20)) {
+          ctx.save();
+          ctx.translate(GRID_OFFSET_X - 8, y);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillText(`${gridY}ft`, 0, 0);
+          ctx.restore();
+        }
+      }
+    }
+    ctx.restore();
+    
+    // Draw existing rooms
+    rooms.forEach(room => {
+      if (room.points.length < 3) return;
+      
+      const screenPoints = room.points.map(gridToScreen);
+      
+      // Fill room
+      ctx.fillStyle = room.color;
+      ctx.beginPath();
+      ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+      screenPoints.slice(1).forEach(point => {
+        ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      
+      // Stroke room
+      ctx.strokeStyle = room.selected ? '#000000' : '#666666';
+      ctx.lineWidth = room.selected ? 3 : 2;
+      ctx.stroke();
+      
+      // Draw room measurements (always on mobile; desktop for rectangles or selected rooms)
+      {
+        const isRectangle = room.points.length === 4 && checkIfRectangle(room.points);
+        const shouldShowMeasurements = isMobile || room.selected || isRectangle;
+        
+        if (shouldShowMeasurements) {
+          // Calculate width and height robustly from bounding box
+          const xs = room.points.map(p => p.x);
+          const ys = room.points.map(p => p.y);
+          const width = Math.abs(Math.max(...xs) - Math.min(...xs));
+          const height = Math.abs(Math.max(...ys) - Math.min(...ys));
+          
+          if (width > 0 && height > 0) {
+            // Draw dimensions on the room
+            const centerX = screenPoints.reduce((sum, p) => sum + p.x, 0) / screenPoints.length;
+            const centerY = screenPoints.reduce((sum, p) => sum + p.y, 0) / screenPoints.length;
+            
+            // Ensure minimum readable font size for mobile
+            const fontSize = Math.max(14, Math.min(18, zoom / 6));
+            ctx.font = `bold ${fontSize}px system-ui, -apple-system, Segoe UI, Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Add semi-transparent background for better readability
+            const dimensionText = `${width}×${height} ft`;
+            const textMetrics = ctx.measureText(dimensionText);
+            const padding = Math.max(6, fontSize * 0.3); // Scale padding with font size
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(
+              centerX - textMetrics.width / 2 - padding,
+              centerY - fontSize / 2 - padding / 2,
+              textMetrics.width + padding * 2,
+              fontSize + padding
+            );
+            
+            ctx.fillStyle = '#000000';
+            ctx.fillText(dimensionText, centerX, centerY);
+          }
+        }
+      }
+    });
+    
+    // Draw freehand paths
+    freehandPaths.forEach(path => {
+      if (path.points.length < 2) return;
+      const screenPoints = path.points.map(gridToScreen);
+      
+      ctx.strokeStyle = path.color.replace('40', '');
+      ctx.lineWidth = path.width;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      ctx.beginPath();
+      ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+      screenPoints.slice(1).forEach(point => {
+        ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+    });
+    
+    // Draw text labels with selection highlight
+    textLabels.forEach(label => {
+      const screenPos = gridToScreen(label.position);
+      
+      // Highlight if being dragged
+      if (isDraggingText && isDraggingText.id === label.id) {
+        ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
+        ctx.fillRect(screenPos.x - 5, screenPos.y - label.fontSize - 5, 
+                     ctx.measureText(label.text).width + 10, label.fontSize + 10);
+      }
+      
+      ctx.fillStyle = label.color;
+      ctx.font = `${label.fontSize}px Arial`;
+      ctx.textAlign = 'left';
+      ctx.fillText(label.text, screenPos.x, screenPos.y);
+    });
+    
+    // Draw furniture items with images
+    furniture.forEach(item => {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * scale;
+      const screenHeight = item.height * scale;
+      
+      ctx.save();
+      
+      // Move to center of furniture item
+      ctx.translate(screenPos.x + screenWidth / 2, screenPos.y + screenHeight / 2);
+      
+      // Apply rotation
+      if (item.rotation) {
+        ctx.rotate((item.rotation * Math.PI) / 180);
+      }
+      
+      // Get furniture image key - use the name as the key since it's set from the furniture ID
+      const imageKey = item.name || 'bed-single'; // fallback
+      
+      const img = loadedImages[imageKey];
+      if (img) {
+        // Draw image
+        ctx.drawImage(img, -screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      } else {
+        // Fallback to colored rectangle while image loads
+        ctx.fillStyle = item.color + '80';
+        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      }
+      
+      // Draw selection border
+      if (item.selected) {
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 3;
+        if (item.shape === 'rectangle') {
+          ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+        } else {
+          const radius = Math.min(screenWidth, screenHeight) / 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      }
+      
+      // Draw furniture name
+      if (zoom > 50) { // Only show names when zoomed in enough
+        ctx.fillStyle = '#000000';
+        const fontSize = Math.max(8, Math.min(12, zoom / 10));
+        ctx.font = `${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(item.name, 0, 0);
+      }
+      
+      ctx.restore();
+      
+      // Draw selection handles when furniture is selected
+      if (item.selected && !isMobile) {
+        const handles = [
+          { x: screenPos.x, y: screenPos.y }, // Top-left
+          { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
+          { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
+          { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
+        ];
+        
+        handles.forEach(handle => {
+          ctx.fillStyle = '#007bff';
+          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+        });
+        
+        // Rotation handle (top center)
+        const rotationHandle = {
+          x: screenPos.x + screenWidth / 2,
+          y: screenPos.y - 20
+        };
+        
+        // Line to rotation handle
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
+        ctx.lineTo(rotationHandle.x, rotationHandle.y);
+        ctx.stroke();
+        
+        // Rotation handle circle
+        ctx.fillStyle = '#28a745';
+        ctx.beginPath();
+        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+    
+    // Draw furniture items
+    furniture.forEach(item => {
+      const screenPos = gridToScreen(item.position);
+      const screenWidth = item.width * scale;
+      const screenHeight = item.height * scale;
+      
+      ctx.save();
+      
+      // Move to center of furniture item
+      ctx.translate(screenPos.x + screenWidth / 2, screenPos.y + screenHeight / 2);
+      
+      // Apply rotation
+      if (item.rotation) {
+        ctx.rotate((item.rotation * Math.PI) / 180);
+      }
+      
+      // Draw furniture shape
+      if (item.shape === 'rectangle') {
+        ctx.fillStyle = item.color + '80'; // Semi-transparent
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.fillRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+        ctx.strokeRect(-screenWidth / 2, -screenHeight / 2, screenWidth, screenHeight);
+      } else if (item.shape === 'circle') {
+        const radius = Math.min(screenWidth, screenHeight) / 2;
+        
+        ctx.fillStyle = item.color + '80';
+        ctx.strokeStyle = item.selected ? '#000000' : item.color;
+        ctx.lineWidth = item.selected ? 3 : 2;
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Draw furniture name
+      if (zoom > 50) { // Only show names when zoomed in enough
+        ctx.fillStyle = '#000000';
+        const fontSize = Math.max(8, Math.min(12, zoom / 10));
+        ctx.font = `${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(item.name, 0, 0);
+      }
+      
+      ctx.restore();
+      
+      // Draw selection handles when furniture is selected
+      if (item.selected && !isMobile) {
+        const handles = [
+          { x: screenPos.x, y: screenPos.y }, // Top-left
+          { x: screenPos.x + screenWidth, y: screenPos.y }, // Top-right
+          { x: screenPos.x + screenWidth, y: screenPos.y + screenHeight }, // Bottom-right
+          { x: screenPos.x, y: screenPos.y + screenHeight }, // Bottom-left
+        ];
+        
+        handles.forEach(handle => {
+          ctx.fillStyle = '#007bff';
+          ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+        });
+        
+        // Rotation handle (top center)
+        const rotationHandle = {
+          x: screenPos.x + screenWidth / 2,
+          y: screenPos.y - 20
+        };
+        
+        // Line to rotation handle
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x + screenWidth / 2, screenPos.y);
+        ctx.lineTo(rotationHandle.x, rotationHandle.y);
+        ctx.stroke();
+        
+        // Rotation handle circle
+        ctx.fillStyle = '#28a745';
+        ctx.beginPath();
+        ctx.arc(rotationHandle.x, rotationHandle.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+    
+    // Draw current room being created
+    if (tool === 'room' && currentRoom.length > 0) {
+      const screenPoints = currentRoom.map(gridToScreen);
+      
+      if (mousePos && !isRoomClosed) {
+        const gridPos = screenToGrid(mousePos);
+        screenPoints.push(gridToScreen(gridPos));
+      }
+      
+      if (screenPoints.length > 1) {
+        ctx.strokeStyle = selectedColor.replace('40', '');
+        ctx.fillStyle = selectedColor;
+        ctx.lineWidth = 2;
+        
+        // Show solid lines if room is closed, dashed if still being created
+        if (isRoomClosed) {
+          ctx.setLineDash([]);
+        } else {
+          ctx.setLineDash([5, 5]);
+        }
+        
+        ctx.beginPath();
+        ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+        screenPoints.slice(1).forEach(point => {
+          ctx.lineTo(point.x, point.y);
+        });
+        
+        // Close the path if room is closed or has enough points
+        if (isRoomClosed || screenPoints.length > 2) {
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      
+      // Draw vertices with first point in green, others in black (draw first point last to ensure visibility)
+      if (currentRoom.length > 0) {
+        // Draw all non-first points in black
+        for (let i = 1; i < currentRoom.length; i++) {
+          const p = gridToScreen(currentRoom[i]);
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Draw the very first point last, in green, so it stays on top
+        const first = gridToScreen(currentRoom[0]);
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.arc(first.x, first.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    // Draw current freehand path with preview straightening and click points
+    if (tool === 'freehand' && currentPath.length > 0) {
+      // Draw the current path points as highlighted dots
+      currentPath.forEach((point, index) => {
+        const screenPoint = gridToScreen(point);
+        ctx.fillStyle = selectedColor.replace('40', '');
+        ctx.beginPath();
+        ctx.arc(screenPoint.x, screenPoint.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Add a white border for better visibility
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+      
+      // If we have a point and mouse position, show preview line
+      if (currentPath.length >= 1 && mousePos) {
+        const lastPoint = gridToScreen(currentPath[currentPath.length - 1]);
+        
+        // Draw preview line to mouse position
+        ctx.strokeStyle = selectedColor.replace('40', '80'); // Semi-transparent
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        
+        ctx.beginPath();
+        ctx.moveTo(lastPoint.x, lastPoint.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset dash
+      }
+    }
+  }, [rooms, freehandPaths, textLabels, currentRoom, currentPath, mousePos, tool, selectedColor, zoom, viewOffset, gridToScreen, screenToGrid]);
+  
+  // Get point from mouse or touch event
+  const getEventPoint = useCallback((e: React.MouseEvent | React.TouchEvent): Point => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    
+    const rect = canvas.getBoundingClientRect();
+    
+    if ('touches' in e) {
+      // Touch event
+      const touch = e.touches[0] || e.changedTouches[0];
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+      };
+    } else {
+      // Mouse event
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+  }, []);
+
+  // Get distance between two touches
+  const getTouchDistance = useCallback((touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const touch1 = touches[0];
+    const touch2 = touches[1];
+    return Math.sqrt(
+      Math.pow(touch2.clientX - touch1.clientX, 2) + 
+      Math.pow(touch2.clientY - touch1.clientY, 2)
+    );
+  }, []);
+
+  // Handle mouse/touch start
+  const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    
+    // Handle pinch zoom - prioritize over freehand drawing
+    if ('touches' in e && e.touches.length === 2) {
+      setIsPinching(true);
+      const distance = getTouchDistance(e.touches);
+      setLastPinchDistance(distance);
+      setLastPinchZoom(zoom);
+      return;
+    }
+    
+    // Don't allow drawing during pinch
+    if (isPinching) return;
+    
+    const point = getEventPoint(e);
+    const gridPos = screenToGrid(point);
+    const currentTime = Date.now();
+    
+    // Check for double-click on text labels
+    const clickedElement = findElementAtPoint(point);
+    if (clickedElement && clickedElement.type === 'text') {
+      const isDoubleClick = currentTime - lastClickTime < 300 && lastClickedText === clickedElement.id;
+      
+      if (isDoubleClick) {
+        // Double-click: Edit or delete text
+        const textLabel = clickedElement.element as TextLabel;
+        setTextInput({
+          position: textLabel.position,
+          value: textLabel.text,
+          isEditing: true,
+          editingId: textLabel.id
+        });
+        setLastClickTime(0);
+        setLastClickedText(null);
+        return;
+      } else {
+        // Single click: Start dragging
+        const textLabel = clickedElement.element as TextLabel;
+        const screenPos = gridToScreen(textLabel.position);
+        setIsDraggingText({
+          id: textLabel.id,
+          offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
+        });
+        setLastClickTime(currentTime);
+        setLastClickedText(clickedElement.id);
+        return;
+      }
+    }
+    
+    // Reset double-click tracking if clicking elsewhere
+    setLastClickTime(currentTime);
+    setLastClickedText(null);
+    
+    if (tool === 'room') {
+      console.log('Room tool clicked, currentRoom length:', currentRoom.length);
+      
+      // Check if clicking near first point to close room
+      if (currentRoom.length >= 3) {
+        const firstScreenPoint = gridToScreen(currentRoom[0]);
+        const distance = Math.sqrt(
+          Math.pow(point.x - firstScreenPoint.x, 2) + 
+          Math.pow(point.y - firstScreenPoint.y, 2)
+        );
+        
+        console.log('Distance to first point:', distance);
+        
+        if (distance < 30) { // Increased touch target for mobile
+          // Close room (seal it) but don't complete yet - show Done button
+          console.log('Room closed/sealed, showing Done button');
+          setIsRoomClosed(true);
+          return;
+        }
+      }
+      
+      // Add point
+      console.log('Adding point to room:', gridPos);
+      setCurrentRoom(prev => {
+        const newRoom = [...prev, gridPos];
+        console.log('New currentRoom state:', newRoom);
+        return newRoom;
+      });
+    } else if (tool === 'freehand' && !isPinching) {
+      // Click-to-click pen tool - add point and create line segments
+      setCurrentPath(prev => {
+        const newPath = [...prev, gridPos];
+        
+        // If we have 2 or more points, create a line segment
+        if (newPath.length >= 2) {
+          const newFreehandPath: FreehandPath = {
+            id: Date.now().toString(),
+            points: newPath,
+            color: selectedColor,
+            width: 3
+          };
+          
+          // Add the new path to freehand paths
+          setFreehandPaths(prevPaths => [...prevPaths, newFreehandPath]);
+          setActionHistory(prevHistory => [...prevHistory, { type: 'freehand', data: newFreehandPath }]);
+          
+          // Return just the current point to start next segment
+          return [gridPos];
+        }
+        
+        return newPath;
+      });
+    } else if (tool === 'label') {
+      setTextInput({ position: gridPos, value: '', isEditing: true });
+    } else if (tool === 'select') {
+      // Check for furniture selection first
+      const clickedFurniture = furniture.find(item => {
+        const screenPos = gridToScreen(item.position);
+        const screenWidth = item.width * (GRID_SIZE * (zoom / 100));
+        const screenHeight = item.height * (GRID_SIZE * (zoom / 100));
+        
+        return point.x >= screenPos.x && point.x <= screenPos.x + screenWidth &&
+               point.y >= screenPos.y && point.y <= screenPos.y + screenHeight;
+      });
+      
+      if (clickedFurniture) {
+        // Deselect all other furniture and select this one
+        setFurniture(prev => prev.map(item => ({
+          ...item,
+          selected: item.id === clickedFurniture.id
+        })));
+        // Start dragging
+        const screenPos = gridToScreen(clickedFurniture.position);
+        setIsDraggingFurniture({
+          id: clickedFurniture.id,
+          offset: { x: point.x - screenPos.x, y: point.y - screenPos.y }
+        });
+      } else {
+        // Deselect all furniture
+        setFurniture(prev => prev.map(item => ({ ...item, selected: false })));
+        setIsDraggingFurniture(null);
+      }
+    } else if (tool === 'erase') {
+      const element = findElementAtPoint(point);
+      if (element) {
+        if (element.type === 'room') {
+          setRooms(prev => prev.filter(room => room.id !== element.id));
+        } else if (element.type === 'freehand') {
+          setFreehandPaths(prev => prev.filter(path => path.id !== element.id));
+        } else if (element.type === 'text') {
+          setTextLabels(prev => prev.filter(label => label.id !== element.id));
+        } else if (element.type === 'furniture') {
+          setFurniture(prev => prev.filter(item => item.id !== element.id));
+        }
+      }
+    }
+  }, [tool, currentRoom, rooms, screenToGrid, gridToScreen, calculateArea, selectedColor, onRoomsChange, findElementAtPoint, getEventPoint, getTouchDistance, zoom, lastClickTime, lastClickedText, furniture]);
+  
+  // Straighten line if it's approximately straight
+  const straightenLine = useCallback((points: Point[]): Point[] => {
+    if (points.length < 2) return points;
+    
+    const start = points[0];
+    const end = points[points.length - 1];
+    
+    // Calculate the straight-line distance and actual path distance
+    const straightDistance = Math.sqrt(
+      Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
+    );
+    
+    if (straightDistance < 3) return points; // Too short to straighten
+    
+    // Calculate angle
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const angleDegrees = (angle * 180 / Math.PI + 360) % 360;
+    
+    // Check if it's close to horizontal, vertical, or 45-degree angles
+    const snapAngles = [0, 45, 90, 135, 180, 225, 270, 315];
+    const snapThreshold = 15; // degrees
+    
+    for (const snapAngle of snapAngles) {
+      const angleDiff = Math.min(
+        Math.abs(angleDegrees - snapAngle),
+        Math.abs(angleDegrees - snapAngle - 360),
+        Math.abs(angleDegrees - snapAngle + 360)
+      );
+      
+      if (angleDiff <= snapThreshold) {
+        // Snap to this angle
+        const snapRadians = (snapAngle * Math.PI) / 180;
+        const snappedEnd = {
+          x: start.x + straightDistance * Math.cos(snapRadians),
+          y: start.y + straightDistance * Math.sin(snapRadians)
+        };
+        return [start, snappedEnd];
+      }
+    }
+    
+    return points;
+  }, []);
+
+  // Handle mouse/touch move
+  const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    
+    // Handle text dragging
+    if (isDraggingText) {
+      const point = getEventPoint(e);
+      const newGridPos = screenToGrid({
+        x: point.x - isDraggingText.offset.x,
+        y: point.y - isDraggingText.offset.y
+      });
+      
+      setTextLabels(prev => prev.map(label => 
+        label.id === isDraggingText.id 
+          ? { ...label, position: newGridPos }
+          : label
+      ));
+      return;
+    }
+    
+    // Handle furniture dragging
+    if (isDraggingFurniture) {
+      const point = getEventPoint(e);
+      const newGridPos = screenToGrid({
+        x: point.x - isDraggingFurniture.offset.x,
+        y: point.y - isDraggingFurniture.offset.y
+      });
+      
+      setFurniture(prev => prev.map(item => 
+        item.id === isDraggingFurniture.id 
+          ? { ...item, position: newGridPos }
+          : item
+      ));
+      return;
+    }
+    
+    // Handle pinch zoom
+    if ('touches' in e && e.touches.length === 2 && isPinching) {
+      const distance = getTouchDistance(e.touches);
+      if (lastPinchDistance > 0) {
+        const scale = distance / lastPinchDistance;
+        const newZoom = Math.max(50, Math.min(500, lastPinchZoom * scale));
+        if (Math.abs(newZoom - zoom) > 5) { // Only update if significant change
+          onZoomChange?.(newZoom);
+          setLastPinchZoom(newZoom);
+        }
+      }
+      return;
+    }
+    
+    const point = getEventPoint(e);
+    setMousePos(point);
+    const gridPos = screenToGrid(point);
+    onCoordinateChange?.(gridPos);
+    
+    // Freehand tool is now click-based, no need for move handling
+  }, [isDraggingText, isDraggingFurniture, getEventPoint, screenToGrid, onCoordinateChange, tool, isDrawing, gridToScreen, isPinching, getTouchDistance, lastPinchDistance, lastPinchZoom, zoom, onZoomChange]);
+  
+  // Handle mouse/touch end
+  const handlePointerUp = useCallback(() => {
+    // End text dragging
+    if (isDraggingText) {
+      setIsDraggingText(null);
+      return;
+    }
+    
+    // End furniture dragging
+    if (isDraggingFurniture) {
+      setIsDraggingFurniture(null);
+      return;
+    }
+    
+    if (isPinching) {
+      setIsPinching(false);
+      setLastPinchDistance(0);
+      return;
+    }
+    
+    // Freehand tool is now click-based, no need for mouse up handling
+    setIsDrawing(false);
+  }, [isDraggingText, tool, isDrawing, currentPath, selectedColor, straightenLine, isPinching]);
+
+  // Handle room completion
+  const handleRoomComplete = useCallback(() => {
+    if (currentRoom.length < 3 || !isRoomClosed) return;
+    
+    console.log('Room completed via Done button, clearing currentRoom state');
+    const area = calculateArea(currentRoom);
+    const newRoom: Room = {
+      id: Date.now().toString(),
+      points: [...currentRoom],
+      label: '',
+      area: area,
+      color: selectedColor,
+    };
+    const newRooms = [...rooms, newRoom];
+    setRooms(newRooms);
+    onRoomsChange?.(newRooms);
+    setCurrentRoom([]); // Clear the current room and reset first point
+    setIsRoomClosed(false); // Reset closed state
+    
+    // Add to history
+    setActionHistory(prev => [...prev, { type: 'room', data: newRoom }]);
+    console.log('Room completed and currentRoom cleared via Done button');
+  }, [currentRoom, isRoomClosed, calculateArea, selectedColor, rooms, onRoomsChange]);
+
+  // Handle text input
+  const handleTextSubmit = useCallback(() => {
+    if (!textInput || !textInput.value.trim()) {
+      setTextInput(null);
+      return;
+    }
+    
+    if (textInput.editingId) {
+      // Update existing text label
+      setTextLabels(prev => prev.map(label => 
+        label.id === textInput.editingId 
+          ? { ...label, text: textInput.value }
+          : label
+      ));
+    } else {
+      // Create new text label
+      const newLabel: TextLabel = {
+        id: Date.now().toString(),
+        position: textInput.position,
+        text: textInput.value,
+        color: selectedColor.replace('40', ''),
+        fontSize: 16
+      };
+      
+      setTextLabels(prev => [...prev, newLabel]);
+      setActionHistory(prev => [...prev, { type: 'text', data: newLabel }]);
+    }
+    
+    setTextInput(null);
+  }, [textInput, selectedColor]);
+
+  // Handle text deletion
+  const handleTextDelete = useCallback(() => {
+    if (textInput && textInput.editingId) {
+      setTextLabels(prev => prev.filter(label => label.id !== textInput.editingId));
+      setTextInput(null);
+    }
+  }, [textInput]);
+
+  // Setup canvas size
+  useEffect(() => {
+    const resizeCanvas = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+      
+      const rect = container.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      
+      draw();
+    };
+    
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    return () => window.removeEventListener('resize', resizeCanvas);
+  }, [draw]);
+  
+  // Redraw when dependencies change
+  useEffect(() => {
+    draw();
+  }, [draw]);
+
+  // Expose undo function through ref
+  useImperativeHandle(ref, () => ({
+    undo: handleUndo
+  }), [handleUndo]);
+
+  // Call parent undo when internal undo is triggered
+  useEffect(() => {
+    // This effect doesn't need to do anything - we'll call onUndo directly from handleUndo
+  }, []);
+
+  // Expose functions to parent (keeping for export, clear, and pan)
+  useEffect(() => {
+    if (window) {
+      (window as any).roomCanvasExport = handleExport;
+      (window as any).roomCanvasClear = handleClear;
+      (window as any).roomCanvasPan = handlePanCanvas;
+    }
+  }, [handleExport, handleClear, handlePanCanvas]);
+
+  
+  return (
+    <div ref={containerRef} className="w-full h-full overflow-hidden bg-white relative">
+      {/* Desktop X-axis scrollbar */}
+      {!isMobile && (
+        <div className="absolute bottom-0 left-0 right-4 h-4 z-20">
+          <HorizontalScrollbar
+            value={viewOffset.x}
+            min={SCROLL_MIN}
+            max={SCROLL_MAX}
+            onChange={(x) => setViewOffset((prev) => ({ ...prev, x }))}
+          />
+        </div>
+      )}
+      
+      {!isMobile && (
+        <div className="absolute top-0 bottom-4 right-0 w-4 z-20">
+          <VerticalScrollbar
+            value={viewOffset.y}
+            min={SCROLL_MIN}
+            max={SCROLL_MAX}
+            onChange={(y) => setViewOffset((prev) => ({ ...prev, y }))}
+          />
+        </div>
+      )}
+      
+      <canvas
+        ref={canvasRef}
+        className="cursor-crosshair w-full h-full block touch-none"
+        style={{ touchAction: 'none' }}
+        onMouseDown={handlePointerDown}
+        onMouseMove={handlePointerMove}
+        onMouseUp={handlePointerUp}
+        onTouchStart={handlePointerDown}
+        onTouchMove={handlePointerMove}
+        onTouchEnd={handlePointerUp}
+        onMouseLeave={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+        onTouchCancel={() => {
+          setMousePos(null);
+          onCoordinateChange?.(null);
+          setIsDrawing(false);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          try {
+            const furnitureData = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (furnitureData && selectedFurniture) {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) {
+                const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                const gridPos = screenToGrid(point);
+                
+                const newFurniture: Furniture = {
+                  id: Date.now().toString(),
+                  position: gridPos,
+                  name: furnitureData.imageKey || selectedFurniture.name,
+                  width: selectedFurniture.width,
+                  height: selectedFurniture.height,
+                  rotation: 0,
+                  color: selectedFurniture.color,
+                  shape: selectedFurniture.shape,
+                  selected: false
+                };
+                
+                setFurniture(prev => [...prev, newFurniture]);
+                onFurnitureAdd?.(newFurniture);
+                setActionHistory(prev => [...prev, { type: 'furniture', data: newFurniture }]);
+              }
+            }
+          } catch (error) {
+            console.error('Error parsing furniture data:', error);
+          }
+        }}
+      />
+      
+      {/* Text Input */}
+      {textInput && textInput.isEditing && (
+        <div 
+          className="absolute bg-white border border-gray-300 rounded shadow-lg p-2 z-10"
+          style={{
+            left: gridToScreen(textInput.position).x,
+            top: gridToScreen(textInput.position).y - 40
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Input
+              value={textInput.value}
+              onChange={(e) => setTextInput(prev => prev ? {...prev, value: e.target.value} : null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleTextSubmit();
+                if (e.key === 'Escape') setTextInput(null);
+                if (e.key === 'Delete' && textInput.editingId) handleTextDelete();
+              }}
+              placeholder={textInput.editingId ? "Edit text..." : "Enter text..."}
+              className="w-32 h-8 text-sm"
+              autoFocus
+            />
+            <Button size="sm" variant="ghost" onClick={handleTextSubmit}>
+              <Check className="h-4 w-4" />
+            </Button>
+            {textInput.editingId && (
+              <Button size="sm" variant="ghost" onClick={handleTextDelete} className="text-red-600 hover:text-red-700">
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+            {!textInput.editingId && (
+              <Button size="sm" variant="ghost" onClick={() => setTextInput(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       )}
+      
+      {/* Done Button for Room Creation - Only show when room is closed/sealed */}
+      {tool === 'room' && currentRoom.length >= 3 && isRoomClosed && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
+          <Button
+            onClick={handleRoomComplete}
+            className="bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2 rounded-lg shadow-lg"
+          >
+            Done
+          </Button>
+        </div>
+      )}
+      
+      {/* Tool Instructions - Show for 5 seconds only */}
+      {showTooltip && (
+        <>
+          {tool === 'room' && currentRoom.length > 0 && !isRoomClosed && (
+            <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                {currentRoom.length >= 3 ? 'Click first point to close room' : `${3 - currentRoom.length} more points needed`}
+              </p>
+            </div>
+          )}
+          
+          {tool === 'room' && isRoomClosed && (
+            <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Room is sealed - Click Done to complete
+              </p>
+            </div>
+          )}
+          
+          {tool === 'freehand' && (
+            <div className="absolute top-4 right-4 bg-green-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Click points to draw straight lines
+              </p>
+            </div>
+          )}
+          
+          {tool === 'label' && (
+            <div className="absolute top-4 right-4 bg-purple-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Click anywhere to add text
+              </p>
+            </div>
+          )}
+          
+          {tool === 'erase' && (
+            <div className="absolute top-4 right-4 bg-red-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Click on any element to erase it
+              </p>
+            </div>
+          )}
+          
+          {tool === 'room' && currentRoom.length === 0 && (
+            <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Click to create room points. Create square/rectangular rooms to see dimensions.
+              </p>
+            </div>
+          )}
+          
+          {tool === 'select' && (
+            <div className="absolute top-4 right-4 bg-gray-600 text-white px-3 py-2 rounded-lg shadow-lg z-10">
+              <p className="text-sm font-medium">
+                Click to select and move elements
+              </p>
+            </div>
+          )}
+        </>
+      )}
+      
     </div>
   );
 });
-
-EnhancedRoomCanvas.displayName = 'EnhancedRoomCanvas';
